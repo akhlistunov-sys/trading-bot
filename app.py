@@ -60,26 +60,90 @@ def get_sandbox_client():
         logger.error(f"❌ Error creating Sandbox client: {e}")
         return None
 
-def open_sandbox_account(client):
-    """Открытие счета в песочнице"""
+def get_sandbox_client():
+    """Создание клиента для работы с песочницей"""
+    token = os.getenv('TINKOFF_API_TOKEN')
+    if not token:
+        logger.error("❌ TINKOFF_API_TOKEN not found in environment variables")
+        return None
+    
     try:
-        # Используем sandbox сервис
-        sandbox_service = client.sandbox
+        # Создаем обычный клиент
+        client = Client(token=token)
         
-        # Получаем или создаем счет в песочнице
-        accounts_response = client.users.get_accounts()
-        if not accounts_response.accounts:
-            # Создаем новый счет в песочнице
-            account_response = sandbox_service.open_sandbox_account()
-            account_id = account_response.account_id
-            logger.info(f"✅ Sandbox account created: {account_id}")
-        else:
-            account_id = accounts_response.accounts[0].id
-            logger.info(f"✅ Using existing account: {account_id}")
+        # Проверяем подключение
+        accounts = client.users.get_accounts()
+        logger.info("✅ Tinkoff client created successfully")
+        logger.info(f"✅ Found {len(accounts.accounts)} accounts")
+        
+        return client
+    except Exception as e:
+        logger.error(f"❌ Error creating Tinkoff client: {e}")
+        return None
+
+def open_sandbox_account(client):
+    """Работа со счетами в основном режиме (песочница автоматически)"""
+    try:
+        # В песочнице счета создаются автоматически
+        accounts = client.users.get_accounts()
+        
+        if not accounts.accounts:
+            logger.error("❌ No accounts found in sandbox")
+            return None
+        
+        # Используем первый счет
+        account_id = accounts.accounts[0].id
+        logger.info(f"✅ Using account: {account_id}")
+        
+        # Пополняем счет в песочнице если нужно
+        try:
+            from tinkoff.invest import MoneyValue
+            # Добавляем виртуальные деньги на счет
+            client.sandbox.sandbox_pay_in(
+                account_id=account_id,
+                amount=MoneyValue(units=1000000, nano=0)  # 1,000,000 рублей
+            )
+            logger.info("✅ Sandbox account funded with 1,000,000 RUB")
+        except Exception as e:
+            logger.info(f"ℹ️ Sandbox funding not needed: {e}")
         
         return account_id
     except Exception as e:
-        logger.error(f"❌ Error opening sandbox account: {e}")
+        logger.error(f"❌ Error with account: {e}")
+        return None
+
+def get_current_prices(client):
+    """Получение текущих цен инструментов"""
+    prices = {}
+    try:
+        for name, figi in INSTRUMENTS.items():
+            last_price = client.market_data.get_last_prices(figi=[figi])
+            if last_price.last_prices:
+                price_obj = last_price.last_prices[0].price
+                price = price_obj.units + price_obj.nano / 1e9
+                prices[name] = price
+                logger.info(f"💰 {name}: {price} руб.")
+    except Exception as e:
+        logger.error(f"❌ Error getting prices: {e}")
+    
+    return prices
+
+def place_order(client, account_id, figi, direction, quantity=1):
+    """Размещение ордера"""
+    try:
+        response = client.orders.post_order(
+            figi=figi,
+            quantity=quantity,
+            direction=direction,
+            account_id=account_id,
+            order_type=OrderType.ORDER_TYPE_MARKET
+        )
+        
+        order_id = response.order_id
+        logger.info(f"✅ Order placed: {direction} {quantity} lots, Order ID: {order_id}")
+        return order_id
+    except Exception as e:
+        logger.error(f"❌ Error placing order: {e}")
         return None
 
 def get_portfolio(client, account_id):
