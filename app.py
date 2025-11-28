@@ -5,19 +5,7 @@ import threading
 import schedule
 import logging
 import os
-try:
-    from tinkoff.invest import Client, OrderDirection, OrderType
-    from tinkoff.invest.sandbox.client import SandboxClient
-    from tinkoff.invest import Client, OrderDirection, OrderType, MoneyValue
-except ImportError:
-    # Fallback для совместимости
-    print("⚠️ Tinkoff invest API not available, using simulation mode")
-    # Заглушки для совместимости
-    class OrderDirection:
-        ORDER_DIRECTION_BUY = "buy"
-        ORDER_DIRECTION_SELL = "sell"
-    class OrderType:
-        ORDER_TYPE_MARKET = "market"
+from tinkoff.invest import Client, OrderDirection, OrderType
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -25,200 +13,19 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Глобальные переменные для отслеживания состояния
+# Глобальные переменные
 request_count = 0
 last_trading_time = "Not started yet"
 bot_status = "ACTIVE"
 session_count = 0
-total_profit = 0
-open_positions = {}
 trade_history = []
 
-# Конфигурация инструментов
+# Инструменты для торговли
 INSTRUMENTS = {
     "SBER": "BBG004730N88",
     "GAZP": "BBG004730RP0", 
-    "YNDX": "BBG006L8G4H1",
-    "VTBR": "BBG004730ZJ9"
+    "YNDX": "BBG006L8G4H1"
 }
-
-def get_sandbox_client():
-    """Создание клиента для Sandbox режима"""
-    token = os.getenv('TINKOFF_API_TOKEN')
-    if not token:
-        logger.error("❌ TINKOFF_API_TOKEN not found in environment variables")
-        return None
-    
-    try:
-        # Правильное создание Sandbox клиента
-        client = Client(token=token, app_name="trading-bot")
-        
-        # Инициализируем песочницу
-        sandbox_service = client.sandbox
-        logger.info("✅ Sandbox client created successfully")
-        return client
-    except Exception as e:
-        logger.error(f"❌ Error creating Sandbox client: {e}")
-        return None
-
-def get_sandbox_client():
-    """Создание клиента для работы с песочницей"""
-    token = os.getenv('TINKOFF_API_TOKEN')
-    if not token:
-        logger.error("❌ TINKOFF_API_TOKEN not found in environment variables")
-        return None
-    
-    try:
-        # Создаем обычный клиент
-        client = Client(token=token)
-        
-        # Проверяем подключение
-        accounts = client.users.get_accounts()
-        logger.info("✅ Tinkoff client created successfully")
-        logger.info(f"✅ Found {len(accounts.accounts)} accounts")
-        
-        return client
-    except Exception as e:
-        logger.error(f"❌ Error creating Tinkoff client: {e}")
-        return None
-
-def open_sandbox_account(client):
-    """Работа со счетами в основном режиме (песочница автоматически)"""
-    try:
-        # В песочнице счета создаются автоматически
-        accounts = client.users.get_accounts()
-        
-        if not accounts.accounts:
-            logger.error("❌ No accounts found in sandbox")
-            return None
-        
-        # Используем первый счет
-        account_id = accounts.accounts[0].id
-        logger.info(f"✅ Using account: {account_id}")
-        
-        # Пополняем счет в песочнице если нужно
-        try:
-            from tinkoff.invest import MoneyValue
-            # Добавляем виртуальные деньги на счет
-            client.sandbox.sandbox_pay_in(
-                account_id=account_id,
-                amount=MoneyValue(units=1000000, nano=0)  # 1,000,000 рублей
-            )
-            logger.info("✅ Sandbox account funded with 1,000,000 RUB")
-        except Exception as e:
-            logger.info(f"ℹ️ Sandbox funding not needed: {e}")
-        
-        return account_id
-    except Exception as e:
-        logger.error(f"❌ Error with account: {e}")
-        return None
-
-def get_current_prices(client):
-    """Получение текущих цен инструментов"""
-    prices = {}
-    try:
-        for name, figi in INSTRUMENTS.items():
-            last_price = client.market_data.get_last_prices(figi=[figi])
-            if last_price.last_prices:
-                price_obj = last_price.last_prices[0].price
-                price = price_obj.units + price_obj.nano / 1e9
-                prices[name] = price
-                logger.info(f"💰 {name}: {price} руб.")
-    except Exception as e:
-        logger.error(f"❌ Error getting prices: {e}")
-    
-    return prices
-
-def place_order(client, account_id, figi, direction, quantity=1):
-    """Размещение ордера"""
-    try:
-        response = client.orders.post_order(
-            figi=figi,
-            quantity=quantity,
-            direction=direction,
-            account_id=account_id,
-            order_type=OrderType.ORDER_TYPE_MARKET
-        )
-        
-        order_id = response.order_id
-        logger.info(f"✅ Order placed: {direction} {quantity} lots, Order ID: {order_id}")
-        return order_id
-    except Exception as e:
-        logger.error(f"❌ Error placing order: {e}")
-        return None
-
-def get_portfolio(client, account_id):
-    """Получение текущего портфеля"""
-    try:
-        portfolio = client.operations.get_portfolio(account_id=account_id)
-        return portfolio
-    except Exception as e:
-        logger.error(f"❌ Error getting portfolio: {e}")
-        return None
-
-def get_current_prices(client):
-    """Получение текущих цен инструментов"""
-    prices = {}
-    try:
-        for name, figi in INSTRUMENTS.items():
-            last_price = client.market_data.get_last_prices(figi=[figi])
-            if last_price.last_prices:
-                price_obj = last_price.last_prices[0].price
-                price = price_obj.units + price_obj.nano / 1e9
-                prices[name] = price
-                logger.info(f"💰 {name}: {price} руб.")
-    except Exception as e:
-        logger.error(f"❌ Error getting prices: {e}")
-    
-    return prices
-
-def place_order(client, account_id, figi, direction, quantity=1):
-    """Размещение ордера в песочнице"""
-    try:
-        response = client.orders.post_order(
-            figi=figi,
-            quantity=quantity,
-            direction=direction,
-            account_id=account_id,
-            order_type=OrderType.ORDER_TYPE_MARKET,
-            price=None  # Рыночная цена
-        )
-        
-        order_id = response.order_id
-        logger.info(f"✅ Order placed: {direction} {quantity} lots, Order ID: {order_id}")
-        return order_id
-    except Exception as e:
-        logger.error(f"❌ Error placing order: {e}")
-        return None
-
-def trading_strategy(prices, portfolio):
-    """Простая торговая стратегия"""
-    signals = []
-    
-    for name, figi in INSTRUMENTS.items():
-        current_price = prices.get(name)
-        if not current_price:
-            continue
-            
-        # Простая стратегия: покупаем если цена ниже 300, продаем если выше 350
-        if current_price < 280:
-            signals.append({
-                "action": "BUY",
-                "instrument": name,
-                "figi": figi,
-                "price": current_price,
-                "reason": f"Цена ниже 280 руб. (текущая: {current_price})"
-            })
-        elif current_price > 320:
-            signals.append({
-                "action": "SELL", 
-                "instrument": name,
-                "figi": figi,
-                "price": current_price,
-                "reason": f"Цена выше 320 руб. (текущая: {current_price})"
-            })
-    
-    return signals
 
 def trading_session():
     """Основная торговая сессия"""
@@ -228,69 +35,89 @@ def trading_session():
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     last_trading_time = current_time
     
-    logger.info(f"🚀 Торговая сессия #{session_count} запущена в {current_time}")
+    logger.info(f"🚀 Торговая сессия #{session_count} запущена")
     
-    client = get_sandbox_client()
-    if not client:
-        logger.error("❌ Cannot start trading session: no client")
+    token = os.getenv('TINKOFF_API_TOKEN')
+    if not token:
+        logger.error("❌ TINKOFF_API_TOKEN не найден")
         return
     
     try:
-        # Открываем счет в песочнице
-        account_id = open_sandbox_account(client)
-        if not account_id:
-            logger.error("❌ Cannot get sandbox account")
-            return
-        
-        # Получаем текущие цены
-        logger.info("📊 Получаем текущие цены...")
-        prices = get_current_prices(client)
-        
-        # Получаем текущий портфель
-        portfolio = get_portfolio(client, account_id)
-        
-        # Анализируем и получаем торговые сигналы
-        logger.info("🤖 Анализируем рынок...")
-        signals = trading_strategy(prices, portfolio)
-        
-        # Исполняем сигналы
-        executed_trades = []
-        for signal in signals:
-            logger.info(f"📈 Сигнал: {signal['action']} {signal['instrument']} - {signal['reason']}")
+        with Client(token) as client:
+            # Получаем счета
+            accounts = client.users.get_accounts()
+            if not accounts.accounts:
+                logger.error("❌ Нет доступных счетов")
+                return
             
-            if signal['action'] == 'BUY':
-                order_id = place_order(client, account_id, signal['figi'], OrderDirection.ORDER_DIRECTION_BUY, 1)
-                if order_id:
-                    executed_trades.append({
+            account_id = accounts.accounts[0].id
+            logger.info(f"✅ Используем счет: {account_id}")
+            
+            # Получаем текущие цены
+            prices = {}
+            for name, figi in INSTRUMENTS.items():
+                last_price = client.market_data.get_last_prices(figi=[figi])
+                if last_price.last_prices:
+                    price_obj = last_price.last_prices[0].price
+                    price = price_obj.units + price_obj.nano / 1e9
+                    prices[name] = price
+                    logger.info(f"💰 {name}: {price} руб.")
+            
+            # Простая торговая стратегия
+            for name, figi in INSTRUMENTS.items():
+                current_price = prices.get(name)
+                if not current_price:
+                    continue
+                
+                # Стратегия: покупаем если цена ниже 280
+                if current_price < 280:
+                    logger.info(f"📈 Сигнал на покупку {name} по {current_price} руб.")
+                    
+                    # Размещаем ордер
+                    response = client.orders.post_order(
+                        figi=figi,
+                        quantity=1,
+                        direction=OrderDirection.ORDER_DIRECTION_BUY,
+                        account_id=account_id,
+                        order_type=OrderType.ORDER_TYPE_MARKET
+                    )
+                    
+                    trade_history.append({
                         'action': 'BUY',
-                        'instrument': signal['instrument'],
-                        'price': signal['price'],
-                        'order_id': order_id,
+                        'instrument': name,
+                        'price': current_price,
+                        'order_id': response.order_id,
                         'timestamp': current_time
                     })
-            elif signal['action'] == 'SELL':
-                order_id = place_order(client, account_id, signal['figi'], OrderDirection.ORDER_DIRECTION_SELL, 1)
-                if order_id:
-                    executed_trades.append({
-                        'action': 'SELL', 
-                        'instrument': signal['instrument'],
-                        'price': signal['price'],
-                        'order_id': order_id,
+                    
+                    logger.info(f"✅ Куплен {name} по {current_price} руб.")
+                
+                # Стратегия: продаем если цена выше 320  
+                elif current_price > 320:
+                    logger.info(f"📉 Сигнал на продажу {name} по {current_price} руб.")
+                    
+                    response = client.orders.post_order(
+                        figi=figi,
+                        quantity=1, 
+                        direction=OrderDirection.ORDER_DIRECTION_SELL,
+                        account_id=account_id,
+                        order_type=OrderType.ORDER_TYPE_MARKET
+                    )
+                    
+                    trade_history.append({
+                        'action': 'SELL',
+                        'instrument': name, 
+                        'price': current_price,
+                        'order_id': response.order_id,
                         'timestamp': current_time
                     })
-        
-        # Сохраняем историю trades
-        trade_history.extend(executed_trades)
-        
-        if executed_trades:
-            logger.info(f"✅ Исполнено ордеров: {len(executed_trades)}")
-        else:
-            logger.info("ℹ️ Нет подходящих сигналов для торговли")
+                    
+                    logger.info(f"✅ Продан {name} по {current_price} руб.")
+            
+            logger.info(f"✅ Торговая сессия #{session_count} завершена")
             
     except Exception as e:
         logger.error(f"❌ Ошибка в торговой сессии: {e}")
-    finally:
-        logger.info(f"✅ Торговая сессия #{session_count} завершена")
 
 def run_trading_session():
     """Запуск торговой сессии в отдельном потоке"""
@@ -299,17 +126,12 @@ def run_trading_session():
     thread.start()
 
 def schedule_tasks():
-    """Настройка расписания задач"""
-    # Запускать торговую сессию каждые 30 минут
+    """Настройка расписания"""
     schedule.every(30).minutes.do(run_trading_session)
-    
-    # Фоновая проверка каждые 10 минут
-    schedule.every(10).minutes.do(lambda: logger.info("🔔 Фоновая проверка системы"))
-    
-    logger.info("📅 Планировщик задач настроен")
+    logger.info("📅 Планировщик настроен")
 
 def run_scheduler():
-    """Запуск планировщика в фоновом режиме"""
+    """Запуск планировщика"""
     while True:
         schedule.run_pending()
         time.sleep(1)
@@ -318,17 +140,13 @@ def run_scheduler():
 def home():
     global request_count
     request_count += 1
-    
     uptime = datetime.datetime.now() - start_time
     
     return f"""
     <html>
-        <head>
-            <title>Trading Bot</title>
-            <meta http-equiv="refresh" content="30">
-        </head>
+        <head><title>Trading Bot</title><meta http-equiv="refresh" content="30"></head>
         <body style="font-family: Arial, sans-serif; margin: 40px;">
-            <h1>🤖 Trading Bot (SANDBOX)</h1>
+            <h1>🤖 Trading Bot</h1>
             <div style="background: #f0f0f0; padding: 20px; border-radius: 10px;">
                 <p><strong>🟢 Status:</strong> {bot_status}</p>
                 <p><strong>⏰ Uptime:</strong> {str(uptime).split('.')[0]}</p>
@@ -336,15 +154,13 @@ def home():
                 <p><strong>🕒 Last Trading:</strong> {last_trading_time}</p>
                 <p><strong>🔢 Sessions:</strong> {session_count}</p>
                 <p><strong>💰 Trades:</strong> {len(trade_history)}</p>
-                <p><strong>🎯 Mode:</strong> Tinkoff Sandbox</p>
+                <p><strong>🎯 Mode:</strong> Tinkoff API</p>
             </div>
             <p>
-                <a href="/status" style="margin-right: 15px;">JSON Status</a>
-                <a href="/health" style="margin-right: 15px;">Health Check</a>
-                <a href="/force" style="margin-right: 15px;">Force Trade</a>
+                <a href="/status">JSON Status</a> |
+                <a href="/force">Force Trade</a> |
                 <a href="/trades">Trade History</a>
             </p>
-            <p><em>Auto-refresh every 30 seconds</em></p>
         </body>
     </html>
     """
@@ -352,7 +168,6 @@ def home():
 @app.route('/status')
 def status():
     uptime = datetime.datetime.now() - start_time
-    
     return jsonify({
         "status": bot_status,
         "uptime_seconds": int(uptime.total_seconds()),
@@ -360,31 +175,18 @@ def status():
         "trading_sessions": session_count,
         "total_trades": len(trade_history),
         "last_trading_time": last_trading_time,
-        "timestamp": datetime.datetime.now().isoformat(),
-        "service": "trading-bot",
-        "mode": "sandbox",
-        "version": "2.0"
-    })
-
-@app.route('/health')
-def health():
-    return jsonify({"status": "healthy", "timestamp": datetime.datetime.now().isoformat()})
-
-@app.route('/force')
-def force_trade():
-    """Принудительный запуск торговой сессии"""
-    run_trading_session()
-    
-    return jsonify({
-        "message": "Торговая сессия запущена принудительно",
         "timestamp": datetime.datetime.now().isoformat()
     })
 
+@app.route('/force')
+def force_trade():
+    run_trading_session()
+    return jsonify({"message": "Торговая сессия запущена", "timestamp": datetime.datetime.now().isoformat()})
+
 @app.route('/trades')
 def show_trades():
-    """Показать историю trades"""
     trades_html = ""
-    for trade in trade_history[-10:]:  # Последние 10 trades
+    for trade in trade_history[-10:]:
         trades_html += f"<p>{trade['timestamp']} - {trade['action']} {trade['instrument']} по {trade['price']} руб.</p>"
     
     return f"""
@@ -398,21 +200,13 @@ def show_trades():
     </html>
     """
 
-# Глобальная переменная времени старта
 start_time = datetime.datetime.now()
 
 if __name__ == '__main__':
-    # Настраиваем планировщик
     schedule_tasks()
-    
-    # Запускаем планировщик в фоновом потоке
     scheduler_thread = threading.Thread(target=run_scheduler)
     scheduler_thread.daemon = True
     scheduler_thread.start()
     
-    logger.info("🚀 Trading Bot started successfully!")
-    logger.info("🎯 Mode: Tinkoff Sandbox API")
-    logger.info("📅 Scheduler activated - auto-trading every 30 minutes")
-    logger.info("🌐 Web server starting on port 10000")
-    
+    logger.info("🚀 Trading Bot started!")
     app.run(host='0.0.0.0', port=10000, debug=False)
