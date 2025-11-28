@@ -68,55 +68,125 @@ class NewsTradingBot:
         self.last_news_check = datetime.datetime.now()
         
     def fetch_news(self):
-        """Получение новостей из различных источников"""
-        all_news = []
-        
-        try:
-            # RBC News
-            rbc_feed = feedparser.parse(NEWS_SOURCES["rbc"])
-            for entry in rbc_feed.entries[:10]:
-                news_item = {
-                    'source': 'RBC',
-                    'title': entry.title,
-                    'summary': entry.summary,
-                    'published': entry.published,
-                    'link': entry.link,
-                    'timestamp': datetime.datetime.now()
-                }
-                all_news.append(news_item)
-                
-        except Exception as e:
-            logger.error(f"❌ Ошибка получения новостей RBC: {e}")
-            
-        return all_news
+    """Получение реальных новостей с работающих источников"""
+    all_news = []
     
-    def analyze_news_sentiment(self, news_item):
-        """Анализ тональности новости и извлечение тикеров"""
-        title = news_item['title'].lower()
-        summary = news_item['summary'].lower()
-        
-        # Поиск тикеров в тексте
-        found_tickers = []
-        for ticker in SECTORS.keys():
-            if ticker.lower() in title or ticker.lower() in summary:
-                found_tickers.append(ticker)
-        
-        # Анализ тональности и поиск триггеров
-        signals = []
-        for pattern, rule in TRADING_RULES.items():
-            if pattern in title or pattern in summary:
-                for ticker in found_tickers:
-                    if rule["sectors"] == ["all"] or SECTORS.get(ticker) in rule["sectors"]:
-                        signals.append({
-                            'ticker': ticker,
-                            'action': rule['action'],
-                            'confidence': rule['confidence'],
-                            'reason': f"Новость: {pattern}",
-                            'news_title': news_item['title'],
-                            'source': news_item['source']
-                        })
+    try:
+        # 1. Московская биржа (официальное API)
+        try:
+            moex_url = "https://iss.moex.com/iss/securities.json?engine=stock&market=shares"
+            response = requests.get(moex_url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                # Берем последние 5 бумаг с описаниями как новости
+                securities = data['securities']['data'][:5]
+                for sec in securities:
+                    news_item = {
+                        'source': 'MOEX',
+                        'title': f"Информация по {sec[2]} ({sec[0]})",
+                        'summary': f"Торговая сессия: {sec[3]}, Объем: {sec[6]}",
+                        'published': datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        'link': f"https://www.moex.com/ru/issue.aspx?board=TQBR&code={sec[0]}",
+                        'timestamp': datetime.datetime.now()
+                    }
+                    all_news.append(news_item)
+        except Exception as e:
+            logger.warning(f"MOEX API временно недоступен: {e}")
+
+        # 2. Investing.com Russia (публичный RSS)
+        try:
+            investing_url = "https://ru.investing.com/rss/news_25.rss"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(investing_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'xml')
+                items = soup.find_all('item')[:8]
+                
+                for item in items:
+                    title = item.find('title')
+                    description = item.find('description')
+                    pub_date = item.find('pubDate')
+                    link = item.find('link')
+                    
+                    if title and description:
+                        # Очищаем HTML теги из описания
+                        desc_text = BeautifulSoup(description.text, 'html.parser').get_text()
                         
-        return signals
+                        news_item = {
+                            'source': 'Investing.com',
+                            'title': title.text,
+                            'summary': desc_text[:200] + '...' if len(desc_text) > 200 else desc_text,
+                            'published': pub_date.text if pub_date else 'N/A',
+                            'link': link.text if link else '#',
+                            'timestamp': datetime.datetime.now()
+                        }
+                        all_news.append(news_item)
+        except Exception as e:
+            logger.warning(f"Investing.com недоступен: {e}")
+
+        # 3. Tinkoff Investments API (новости по бумагам)
+        try:
+            # Получаем новости по основным бумагам через Tinkoff API
+            major_tickers = ["SBER", "GAZP", "VTBR", "LKOH", "ROSN"]
+            for ticker in major_tickers:
+                figi = self.get_figi_by_ticker(ticker)
+                if figi:
+                    # Используем информацию о бумаге как новость
+                    last_price = self.client.market_data.get_last_prices(figi=[figi])
+                    if last_price.last_prices:
+                        price_obj = last_price.last_prices[0].price
+                        current_price = price_obj.units + price_obj.nano/1e9
+                        
+                        news_item = {
+                            'source': 'TINKOFF',
+                            'title': f"{ticker} - текущая цена: {current_price:.2f} руб.",
+                            'summary': f"Акция {ticker} торгуется по {current_price:.2f} руб.",
+                            'published': datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            'link': '#',
+                            'timestamp': datetime.datetime.now()
+                        }
+                        all_news.append(news_item)
+        except Exception as e:
+            logger.warning(f"Tinkoff News недоступен: {e}")
+
+        # 4. Финансовые новости с Finam (публичный RSS)
+        try:
+            finam_url = "https://www.finam.ru/analysis/news/rsspoint/"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(finam_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'xml')
+                items = soup.find_all('item')[:5]
+                
+                for item in items:
+                    title = item.find('title')
+                    description = item.find('description')
+                    pub_date = item.find('pubDate')
+                    
+                    if title:
+                        news_item = {
+                            'source': 'Finam',
+                            'title': title.text,
+                            'summary': description.text if description else title.text,
+                            'published': pub_date.text if pub_date else 'N/A',
+                            'link': item.find('link').text if item.find('link') else '#',
+                            'timestamp': datetime.datetime.now()
+                        }
+                        all_news.append(news_item)
+        except Exception as e:
+            logger.warning(f"Finam недоступен: {e}")
+
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка получения новостей: {e}")
+        
+    logger.info(f"📰 Получено новостей: {len(all_news)}")
+    return all_news
     
     def execute_news_trade(self, signal):
         """Исполнение торговой операции на основе новости"""
