@@ -104,67 +104,35 @@ class AdvancedTradingBot:
         return max(1, int(adjusted_size / 10000))  # Минимум 1 лот
     
     def generate_trading_signals(self):
-        """Генерация торговых сигналов на основе многфакторного анализа"""
-        signals = []
-        
-        for instrument, figi in INSTRUMENTS.items():
-            try:
-                # Получаем исторические данные
-                candles = self.client.market_data.get_candles(
-                    figi=figi,
-                    from_=datetime.datetime.now() - datetime.timedelta(days=30),
-                    to=datetime.datetime.now(),
-                    interval=1
-                )
+    """Упрощенный анализ на основе последних цен"""
+    signals = []
+    
+    for instrument, figi in list(INSTRUMENTS.items())[:6]:  # Только 6 инструментов
+        try:
+            # Просто получаем последнюю цену
+            last_price = self.client.market_data.get_last_prices(figi=[figi])
+            if not last_price.last_prices:
+                continue
                 
-                prices = [c.close.units + c.close.nano/1e9 for c in candles.candles]
-                if not prices:
-                    continue
-                    
-                current_price = prices[-1]
+            price_obj = last_price.last_prices[0].price
+            current_price = price_obj.units + price_obj.nano/1e9
+            
+            # Простая стратегия
+            if current_price < 300:  # Пример условия
+                signals.append({
+                    'action': 'BUY',
+                    'instrument': instrument,
+                    'figi': figi,
+                    'price': current_price,
+                    'size': 1,
+                    'confidence': 0.7,
+                    'reason': f"Цена ниже 300: {current_price}"
+                })
                 
-                # Мультифакторный анализ
-                tech_signal = self.analyze_technical({'prices': prices})
-                fund_signal = self.analyze_fundamental(instrument)
-                sentiment_score = self.analyze_sentiment(instrument)
-                
-                # Совокупный рейтинг
-                score = 0
-                if tech_signal == "STRONG_BUY": score += 2
-                elif tech_signal == "BUY": score += 1
-                
-                if fund_signal == "STRONG_BUY": score += 2
-                elif fund_signal == "BUY": score += 1
-                
-                score += sentiment_score
-                
-                # Генерация сигнала
-                if score >= 3.5:
-                    position_size = self.calculate_position_size(1000000, score/5)
-                    signals.append({
-                        'action': 'BUY',
-                        'instrument': instrument,
-                        'figi': figi,
-                        'price': current_price,
-                        'size': position_size,
-                        'confidence': score/5,
-                        'reason': f"Мультифакторный score: {score:.2f}"
-                    })
-                elif score <= 1.5 and instrument in self.portfolio:
-                    signals.append({
-                        'action': 'SELL', 
-                        'instrument': instrument,
-                        'figi': figi,
-                        'price': current_price,
-                        'size': 1,
-                        'confidence': (5-score)/5,
-                        'reason': f"Слабые показатели: {score:.2f}"
-                    })
-                    
-            except Exception as e:
-                logger.error(f"Ошибка анализа {instrument}: {e}")
-        
-        return signals
+        except Exception as e:
+            logger.error(f"Ошибка анализа {instrument}: {e}")
+    
+    return signals
 
 def trading_session():
     """Мощная торговая сессия с продвинутым анализом"""
