@@ -8,6 +8,7 @@ import os
 try:
     from tinkoff.invest import Client, OrderDirection, OrderType
     from tinkoff.invest.sandbox.client import SandboxClient
+    from tinkoff.invest import Client, OrderDirection, OrderType, MoneyValue
 except ImportError:
     # Fallback для совместимости
     print("⚠️ Tinkoff invest API not available, using simulation mode")
