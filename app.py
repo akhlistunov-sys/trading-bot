@@ -6,10 +6,10 @@ import schedule
 import logging
 import os
 import requests
-import feedparser
 from tinkoff.invest import Client, OrderDirection, OrderType
 import re
 from collections import deque
+from bs4 import BeautifulSoup
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
