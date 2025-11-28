@@ -1,5 +1,5 @@
 flask==2.3.3
 schedule==1.2.0
 tinkoff-investments
-feedparser==6.0.10
 requests==2.31.0
+beautifulsoup4==4.12.2
