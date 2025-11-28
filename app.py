@@ -5,8 +5,18 @@ import threading
 import schedule
 import logging
 import os
-from tinkoff.invest import Client, OrderDirection, OrderType, SandboxService
-from tinkoff.invest.sandbox.client import SandboxClient
+try:
+    from tinkoff.invest import Client, OrderDirection, OrderType
+    from tinkoff.invest.sandbox.client import SandboxClient
+except ImportError:
+    # Fallback для совместимости
+    print("⚠️ Tinkoff invest API not available, using simulation mode")
+    # Заглушки для совместимости
+    class OrderDirection:
+        ORDER_DIRECTION_BUY = "buy"
+        ORDER_DIRECTION_SELL = "sell"
+    class OrderType:
+        ORDER_TYPE_MARKET = "market"
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
