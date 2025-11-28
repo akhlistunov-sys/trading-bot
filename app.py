@@ -1,11 +1,9 @@
-print("🤖 Starting Trading Bot...")
-
 from flask import Flask
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "✅ Trading Bot is WORKING!"
+    return "✅ Trading Bot WORKING!"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
