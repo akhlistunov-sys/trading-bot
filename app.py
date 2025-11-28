@@ -49,8 +49,11 @@ def get_sandbox_client():
         return None
     
     try:
-        # Используем SandboxClient для тестового режима
-        client = SandboxClient(token=token)
+        # Правильное создание Sandbox клиента
+        client = Client(token=token, app_name="trading-bot")
+        
+        # Инициализируем песочницу
+        sandbox_service = client.sandbox
         logger.info("✅ Sandbox client created successfully")
         return client
     except Exception as e:
@@ -60,16 +63,21 @@ def get_sandbox_client():
 def open_sandbox_account(client):
     """Открытие счета в песочнице"""
     try:
-        accounts = client.users.get_accounts()
-        if not accounts.accounts:
+        # Используем sandbox сервис
+        sandbox_service = client.sandbox
+        
+        # Получаем или создаем счет в песочнице
+        accounts_response = client.users.get_accounts()
+        if not accounts_response.accounts:
             # Создаем новый счет в песочнице
-            account_id = client.sandbox.open_sandbox_account()
+            account_response = sandbox_service.open_sandbox_account()
+            account_id = account_response.account_id
             logger.info(f"✅ Sandbox account created: {account_id}")
-            return account_id
         else:
-            account_id = accounts.accounts[0].id
-            logger.info(f"✅ Using existing sandbox account: {account_id}")
-            return account_id
+            account_id = accounts_response.accounts[0].id
+            logger.info(f"✅ Using existing account: {account_id}")
+        
+        return account_id
     except Exception as e:
         logger.error(f"❌ Error opening sandbox account: {e}")
         return None
