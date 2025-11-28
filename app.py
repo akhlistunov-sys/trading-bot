@@ -49,9 +49,8 @@ def debug_token():
         except Exception as e:
             info["api_connection"] = f"FAILED: {str(e)}"
     
-    return jsonify(info)
-def trading_session():
-    """Основная торговая сессия"""
+    return jsonify(info)def trading_session():
+    """Упрощенная торговая сессия для теста"""
     global last_trading_time, session_count, trade_history
     
     session_count += 1
@@ -66,81 +65,38 @@ def trading_session():
         return
     
     try:
+        # Простая проверка подключения
         with Client(token) as client:
-            # Получаем счета
-            accounts = client.users.get_accounts()
-            if not accounts.accounts:
-                logger.error("❌ Нет доступных счетов")
-                return
+            logger.info("✅ Подключение к API успешно")
             
-            account_id = accounts.accounts[0].id
-            logger.info(f"✅ Используем счет: {account_id}")
-            
-            # Получаем текущие цены
+            # Просто получаем цены (это должно работать)
             prices = {}
             for name, figi in INSTRUMENTS.items():
-                last_price = client.market_data.get_last_prices(figi=[figi])
-                if last_price.last_prices:
-                    price_obj = last_price.last_prices[0].price
-                    price = price_obj.units + price_obj.nano / 1e9
-                    prices[name] = price
-                    logger.info(f"💰 {name}: {price} руб.")
+                try:
+                    last_price = client.market_data.get_last_prices(figi=[figi])
+                    if last_price.last_prices:
+                        price_obj = last_price.last_prices[0].price
+                        price = price_obj.units + price_obj.nano / 1e9
+                        prices[name] = price
+                        logger.info(f"✅ {name}: {price} руб.")
+                    else:
+                        logger.warning(f"⚠️ Нет данных по {name}")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка получения цены {name}: {e}")
             
-            # Простая торговая стратегия
-            for name, figi in INSTRUMENTS.items():
-                current_price = prices.get(name)
-                if not current_price:
-                    continue
-                
-                # Стратегия: покупаем если цена ниже 280
-                if current_price < 280:
-                    logger.info(f"📈 Сигнал на покупку {name} по {current_price} руб.")
-                    
-                    # Размещаем ордер
-                    response = client.orders.post_order(
-                        figi=figi,
-                        quantity=1,
-                        direction=OrderDirection.ORDER_DIRECTION_BUY,
-                        account_id=account_id,
-                        order_type=OrderType.ORDER_TYPE_MARKET
-                    )
-                    
-                    trade_history.append({
-                        'action': 'BUY',
-                        'instrument': name,
-                        'price': current_price,
-                        'order_id': response.order_id,
-                        'timestamp': current_time
-                    })
-                    
-                    logger.info(f"✅ Куплен {name} по {current_price} руб.")
-                
-                # Стратегия: продаем если цена выше 320  
-                elif current_price > 320:
-                    logger.info(f"📉 Сигнал на продажу {name} по {current_price} руб.")
-                    
-                    response = client.orders.post_order(
-                        figi=figi,
-                        quantity=1, 
-                        direction=OrderDirection.ORDER_DIRECTION_SELL,
-                        account_id=account_id,
-                        order_type=OrderType.ORDER_TYPE_MARKET
-                    )
-                    
-                    trade_history.append({
-                        'action': 'SELL',
-                        'instrument': name, 
-                        'price': current_price,
-                        'order_id': response.order_id,
-                        'timestamp': current_time
-                    })
-                    
-                    logger.info(f"✅ Продан {name} по {current_price} руб.")
-            
-            logger.info(f"✅ Торговая сессия #{session_count} завершена")
+            # Симулируем торговлю если получили цены
+            if prices:
+                trade_history.append({
+                    'action': 'BUY',
+                    'instrument': 'SBER',
+                    'price': prices.get('SBER', 280),
+                    'timestamp': current_time,
+                    'mode': 'SIMULATION'
+                })
+                logger.info("✅ Симуляция торговли завершена")
             
     except Exception as e:
-        logger.error(f"❌ Ошибка в торговой сессии: {e}")
+        logger.error(f"❌ Критическая ошибка: {e}")
 
 def run_trading_session():
     """Запуск торговой сессии в отдельном потоке"""
