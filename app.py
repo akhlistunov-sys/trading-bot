@@ -346,7 +346,23 @@ def show_trades():
         </body>
     </html>
     """
+@app.route('/check_token')
+def check_token():
+    """Проверка токена"""
+    token = os.getenv('TINKOFF_API_TOKEN')
+    
+    info = {
+        "token_exists": bool(token),
+        "token_length": len(token) if token else 0,
+        "token_starts_with_t": token.startswith('t.') if token else False,
+        "token_preview": token[:20] + "..." if token and len(token) > 20 else token,
+        "environment_loaded": 'TINKOFF_API_TOKEN' in os.environ
+    }
+    
+    return jsonify(info)
 
+# Эта строка уже должна быть в коде:
+start_time = datetime.datetime.now()
 start_time = datetime.datetime.now()
 
 if __name__ == '__main__':
