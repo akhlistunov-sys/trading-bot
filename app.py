@@ -114,6 +114,17 @@ def run_scheduler():
     while True:
         schedule.run_pending()
         time.sleep(1)
+@app.route('/check_env')
+def check_env():
+    """Проверка переменных окружения"""
+    token = os.getenv('TINKOFF_API_TOKEN')
+    all_vars = dict(os.environ)
+    
+    return jsonify({
+        "TINKOFF_API_TOKEN_exists": bool(token),
+        "TINKOFF_API_TOKEN_value": token[:10] + "..." if token else None,
+        "all_environment_variables": list(all_vars.keys())
+    })
 
 @app.route('/')
 def home():
