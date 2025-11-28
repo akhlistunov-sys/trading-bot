@@ -26,7 +26,30 @@ INSTRUMENTS = {
     "GAZP": "BBG004730RP0", 
     "YNDX": "BBG006L8G4H1"
 }
-
+@app.route('/debug_token')
+def debug_token():
+    """Детальная диагностика токена"""
+    token = os.getenv('TINKOFF_API_TOKEN')
+    
+    info = {
+        "token_exists": bool(token),
+        "token_length": len(token) if token else 0,
+        "token_starts_with_t": token.startswith('t.') if token else False,
+        "token_preview": token[:15] + "..." if token and len(token) > 15 else token,
+        "environment_set": 'TINKOFF_API_TOKEN' in os.environ
+    }
+    
+    # Попробуем проверить токен
+    if token:
+        try:
+            with Client(token) as client:
+                accounts = client.users.get_accounts()
+                info["api_connection"] = "SUCCESS"
+                info["accounts_count"] = len(accounts.accounts)
+        except Exception as e:
+            info["api_connection"] = f"FAILED: {str(e)}"
+    
+    return jsonify(info)
 def trading_session():
     """Основная торговая сессия"""
     global last_trading_time, session_count, trade_history
