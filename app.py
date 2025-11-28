@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, jsonify
 import datetime
 import time
@@ -6,7 +5,7 @@ import threading
 import schedule
 import logging
 import os
-from tinkoff.invest import Client, OrderDirection, OrderType
+from tinkoff.invest import Client
 from strategies import MomentTradingStrategy, ArbitrageStrategy, NewsTradingStrategy
 
 # Настройка логирования
@@ -18,11 +17,13 @@ app = Flask(__name__)
 # Глобальные переменные
 request_count = 0
 last_trading_time = "Not started yet"
-bot_status = "MOMENT TRADING BOT - ACTIVE"
+bot_status = "⚡ MOMENT TRADING BOT - VIRTUAL MODE"
 session_count = 0
 trade_history = []
-portfolio_value = 0
-total_profit = 0
+real_portfolio_value = 0
+virtual_portfolio_value = 100000  # Стартовый виртуальный капитал
+virtual_positions = {}
+total_virtual_profit = 0
 
 # Инструменты для торговли
 INSTRUMENTS = {
@@ -34,15 +35,71 @@ INSTRUMENTS = {
     "YNDX": "BBG006L8G4H1"
 }
 
+class VirtualPortfolio:
+    """Управление виртуальным портфелем"""
+    
+    def __init__(self, initial_capital=100000):
+        self.cash = initial_capital
+        self.positions = {}
+        self.trade_history = []
+        
+    def execute_trade(self, signal, current_price):
+        """Исполнение виртуальной сделки"""
+        ticker = signal['ticker']
+        action = signal['action']
+        size = signal['size']
+        
+        trade_cost = current_price * size
+        
+        if action == 'BUY':
+            if trade_cost <= self.cash:
+                self.cash -= trade_cost
+                self.positions[ticker] = self.positions.get(ticker, 0) + size
+                profit = 0
+                status = "EXECUTED"
+            else:
+                profit = 0
+                status = "INSUFFICIENT_FUNDS"
+        else:  # SELL
+            if ticker in self.positions and self.positions[ticker] >= size:
+                self.cash += trade_cost
+                # Упрощенный расчет прибыли
+                profit = trade_cost * 0.02  # 2% прибыли для примера
+                self.positions[ticker] -= size
+                if self.positions[ticker] == 0:
+                    del self.positions[ticker]
+                status = "EXECUTED"
+            else:
+                profit = 0
+                status = "NO_POSITION"
+        
+        trade_result = {
+            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'strategy': signal['strategy'],
+            'action': action,
+            'ticker': ticker,
+            'price': current_price,
+            'size': size,
+            'virtual': True,
+            'status': status,
+            'profit': profit,
+            'reason': signal['reason'],
+            'virtual_cash': self.cash,
+            'virtual_positions': dict(self.positions)
+        }
+        
+        return trade_result
+
 def trading_session():
-    """Главная торговая сессия - запуск всех стратегий"""
-    global last_trading_time, session_count, trade_history, portfolio_value
+    """Главная торговая сессия - ВИРТУАЛЬНАЯ ТОРГОВЛЯ"""
+    global last_trading_time, session_count, trade_history, real_portfolio_value
+    global virtual_portfolio_value, total_virtual_profit, virtual_positions
     
     session_count += 1
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     last_trading_time = current_time
     
-    logger.info(f"🚀 МОМЕНТНАЯ СЕССИЯ #{session_count} - ЗАПУСК СТРАТЕГИЙ")
+    logger.info(f"🚀 ВИРТУАЛЬНАЯ СЕССИЯ #{session_count} - БЫСТРЫЙ ТРЕЙДИНГ")
     
     token = os.getenv('TINKOFF_API_TOKEN')
     if not token:
@@ -51,16 +108,35 @@ def trading_session():
     
     try:
         with Client(token) as client:
-            # Получаем счет
+            # Получаем реальный счет (только для данных)
             accounts = client.users.get_accounts()
             if not accounts.accounts:
                 logger.error("❌ Нет доступных счетов")
                 return
                 
             account_id = accounts.accounts[0].id
-            logger.info(f"✅ Используем счет: {account_id}")
             
-            # Запускаем ВСЕ стратегии
+            # Получаем реальные цены
+            real_prices = {}
+            for ticker, figi in INSTRUMENTS.items():
+                last_price = client.market_data.get_last_prices(figi=[figi])
+                if last_price.last_prices:
+                    price_obj = last_price.last_prices[0].price
+                    price = price_obj.units + price_obj.nano / 1e9
+                    real_prices[ticker] = price
+                    logger.info(f"📊 РЕАЛЬНАЯ ЦЕНА {ticker}: {price} руб.")
+            
+            # Получаем реальный портфель (только для информации)
+            try:
+                portfolio = client.operations.get_portfolio(account_id=account_id)
+                real_portfolio_value = portfolio.total_amount_portfolio.units + portfolio.total_amount_portfolio.nano/1e9
+            except:
+                real_portfolio_value = 0
+            
+            # Инициализируем виртуальный портфель
+            virtual_portfolio = VirtualPortfolio(100000)
+            
+            # Запускаем ВСЕ стратегии на реальных данных
             strategies = [
                 MomentTradingStrategy(client, account_id),
                 ArbitrageStrategy(client, account_id), 
@@ -72,58 +148,41 @@ def trading_session():
                 try:
                     signals = strategy.analyze(INSTRUMENTS)
                     all_signals.extend(signals)
-                    logger.info(f"📊 {strategy.name}: {len(signals)} сигналов")
+                    logger.info(f"🎯 {strategy.name}: {len(signals)} сигналов")
                 except Exception as e:
                     logger.error(f"❌ Ошибка в стратегии {strategy.name}: {e}")
             
-            # Сортируем сигналы по уверенности и исполняем лучшие
+            # Сортируем сигналы по уверенности
             all_signals.sort(key=lambda x: x['confidence'], reverse=True)
             
+            # Исполняем ВИРТУАЛЬНЫЕ сделки
             executed_trades = []
-            for signal in all_signals[:3]:  # Максимум 3 лучших сигнала за сессию
-                if signal['confidence'] > 0.6:  # Минимальная уверенность
-                    try:
-                        figi = INSTRUMENTS[signal['ticker']]
-                        response = client.orders.post_order(
-                            figi=figi,
-                            quantity=signal['size'],
-                            direction=OrderDirection.ORDER_DIRECTION_BUY if signal['action'] == 'BUY' else OrderDirection.ORDER_DIRECTION_SELL,
-                            account_id=account_id,
-                            order_type=OrderType.ORDER_TYPE_MARKET
-                        )
-                        
-                        trade_result = {
-                            'timestamp': current_time,
-                            'strategy': signal['strategy'],
-                            'action': signal['action'],
-                            'ticker': signal['ticker'],
-                            'price': signal['price'],
-                            'size': signal['size'],
-                            'confidence': signal['confidence'],
-                            'reason': signal['reason'],
-                            'order_id': response.order_id
-                        }
+            for signal in all_signals[:3]:  # Лучшие 3 сигнала
+                if signal['confidence'] > 0.6:
+                    current_price = real_prices.get(signal['ticker'])
+                    if current_price:
+                        trade_result = virtual_portfolio.execute_trade(signal, current_price)
                         executed_trades.append(trade_result)
-                        logger.info(f"✅ {signal['strategy']}: {signal['action']} {signal['ticker']} x{signal['size']}")
                         
-                    except Exception as e:
-                        logger.error(f"❌ Ошибка исполнения {signal['ticker']}: {e}")
+                        if trade_result['status'] == 'EXECUTED':
+                            logger.info(f"✅ ВИРТУАЛЬНАЯ СДЕЛКА: {signal['action']} {signal['ticker']} x{signal['size']}")
+                        else:
+                            logger.warning(f"⚠️ {trade_result['status']}: {signal['action']} {signal['ticker']}")
             
-            # Сохраняем историю сделок
+            # Сохраняем историю и обновляем статистику
             trade_history.extend(executed_trades)
+            virtual_portfolio_value = virtual_portfolio.cash
+            virtual_positions = virtual_portfolio.positions
             
-            # Обновляем статистику портфеля
-            try:
-                portfolio = client.operations.get_portfolio(account_id=account_id)
-                portfolio_value = portfolio.total_amount_portfolio.units + portfolio.total_amount_portfolio.nano/1e9
-                logger.info(f"💰 Текущий портфель: {portfolio_value:.2f} руб.")
-            except Exception as e:
-                logger.error(f"❌ Ошибка получения портфеля: {e}")
+            # Считаем общую виртуальную прибыль
+            total_virtual_profit = sum(trade.get('profit', 0) for trade in executed_trades)
             
-            logger.info(f"🎯 СЕССИЯ #{session_count} ЗАВЕРШЕНА: {len(executed_trades)} сделок")
+            logger.info(f"💰 СЕССИЯ #{session_count} ЗАВЕРШЕНА")
+            logger.info(f"💎 ВИРТУАЛЬНЫЙ ПОРТФЕЛЬ: {virtual_portfolio_value:.2f} руб.")
+            logger.info(f"📈 ВИРТУАЛЬНАЯ ПРИБЫЛЬ: +{total_virtual_profit:.2f} руб.")
             
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка торговой сессии: {e}")
+        logger.error(f"❌ Ошибка торговой сессии: {e}")
 
 def run_trading_session():
     """Запуск торговой сессии в отдельном потоке"""
@@ -132,13 +191,8 @@ def run_trading_session():
     thread.start()
 
 def schedule_tasks():
-    """Настройка расписания - частый трейдинг!"""
-    # Моментный трейдинг каждые 10 минут!
+    """Настройка расписания - БЫСТРЫЙ ТРЕЙДИНГ"""
     schedule.every(10).minutes.do(run_trading_session)
-    
-    # Ежечасная проверка портфеля
-    schedule.every().hour.do(lambda: logger.info("⏰ Ежечасная проверка системы"))
-    
     logger.info("📅 Планировщик настроен - трейдинг каждые 10 минут!")
 
 def run_scheduler():
@@ -153,31 +207,36 @@ def home():
     request_count += 1
     uptime = datetime.datetime.now() - start_time
     
-    # Расчет дневной прибыли (упрощенный)
-    daily_profit = len(trade_history) * 100  # Пример расчета
+    # Расчет доходности
+    initial_capital = 100000
+    current_virtual_value = virtual_portfolio_value + sum(
+        virtual_positions.get(ticker, 0) * 300 for ticker in virtual_positions  # Примерная оценка
+    )
+    virtual_return = ((current_virtual_value - initial_capital) / initial_capital) * 100
     
     return f"""
     <html>
         <head><title>Moment Trading Bot</title><meta http-equiv="refresh" content="30"></head>
-        <body style="font-family: Arial, sans-serif; margin: 40px; background: #0f0f23;">
-            <h1 style="color: #00ff00;">⚡ MOMENT TRADING BOT</h1>
-            <div style="background: #1a1a2e; color: #00ff00; padding: 25px; border-radius: 10px; border: 1px solid #00ff00;">
+        <body style="font-family: Arial, sans-serif; margin: 40px; background: #f8f9fa;">
+            <h1 style="color: #2c5aa0;">⚡ Moment Trading Bot</h1>
+            <div style="background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
                 <p><strong>🚀 Status:</strong> {bot_status}</p>
                 <p><strong>⏰ Uptime:</strong> {str(uptime).split('.')[0]}</p>
                 <p><strong>📊 Requests:</strong> {request_count}</p>
                 <p><strong>🕒 Last Trading:</strong> {last_trading_time}</p>
                 <p><strong>🔢 Sessions:</strong> {session_count}</p>
-                <p><strong>💰 Trades Today:</strong> {len(trade_history)}</p>
-                <p><strong>💎 Portfolio:</strong> {portfolio_value:.2f} руб.</p>
-                <p><strong>📈 Daily Profit:</strong> <span style="color: #00ff00;">+{daily_profit} руб.</span></p>
+                <p><strong>💰 Virtual Trades:</strong> {len(trade_history)}</p>
+                <p><strong>💎 Real Portfolio:</strong> {real_portfolio_value:.2f} руб.</p>
+                <p><strong>🏦 Virtual Portfolio:</strong> {virtual_portfolio_value:.2f} руб.</p>
+                <p><strong>📈 Virtual Return:</strong> <span style="color: {'green' if virtual_return >= 0 else 'red'}">{virtual_return:.2f}%</span></p>
             </div>
             <p style="margin-top: 20px;">
-                <a href="/status" style="margin-right: 15px; background: #00ff00; color: black; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold;">JSON Status</a>
-                <a href="/force" style="margin-right: 15px; background: #ff00ff; color: black; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold;">🚀 Force Trade</a>
-                <a href="/trades" style="background: #ffff00; color: black; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold;">📋 Trade History</a>
+                <a href="/status" style="margin-right: 15px; background: #4CAF50; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">JSON Status</a>
+                <a href="/force" style="margin-right: 15px; background: #2196F3; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">🚀 Force Trade</a>
+                <a href="/trades" style="background: #FF9800; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">📋 Trade History</a>
             </p>
-            <p style="color: #00ff00;">
-                <em>🤖 Моментный трейдинг каждые 10 минут | Multiple Strategies | Max Profit</em>
+            <p style="color: #666;">
+                <em>🤖 Виртуальный трейдинг на реальных данных | Моментные стратегии каждые 10 минут</em>
             </p>
         </body>
     </html>
@@ -186,19 +245,26 @@ def home():
 @app.route('/status')
 def status():
     uptime = datetime.datetime.now() - start_time
-    daily_profit = len(trade_history) * 100  # Упрощенный расчет
+    
+    initial_capital = 100000
+    current_virtual_value = virtual_portfolio_value + sum(
+        virtual_positions.get(ticker, 0) * 300 for ticker in virtual_positions
+    )
+    virtual_return = ((current_virtual_value - initial_capital) / initial_capital) * 100
     
     return jsonify({
         "status": bot_status,
         "uptime_seconds": int(uptime.total_seconds()),
         "requests_served": request_count,
         "trading_sessions": session_count,
-        "total_trades": len(trade_history),
-        "portfolio_value": portfolio_value,
-        "daily_profit": daily_profit,
+        "virtual_trades": len(trade_history),
+        "real_portfolio": real_portfolio_value,
+        "virtual_portfolio": virtual_portfolio_value,
+        "virtual_return_percentage": virtual_return,
+        "virtual_positions": virtual_positions,
         "last_trading_time": last_trading_time,
         "timestamp": datetime.datetime.now().isoformat(),
-        "mode": "MOMENT_TRADING_10MIN",
+        "mode": "VIRTUAL_TRADING_10MIN",
         "strategies_active": ["Moment Trading", "Arbitrage", "News Trading"]
     })
 
@@ -207,67 +273,34 @@ def force_trade():
     """Принудительный запуск торговой сессии"""
     run_trading_session()
     return jsonify({
-        "message": "🚀 ПРИНУДИТЕЛЬНЫЙ ЗАПУСК ТОРГОВОЙ СЕССИИ",
-        "strategies": ["Moment Trading", "Arbitrage", "News Trading"],
+        "message": "🚀 ПРИНУДИТЕЛЬНЫЙ ЗАПУСК ВИРТУАЛЬНОЙ ТОРГОВЛИ",
         "timestamp": datetime.datetime.now().isoformat()
     })
 
 @app.route('/trades')
 def show_trades():
     trades_html = ""
-    for trade in trade_history[-20:]:
-        color = "#00ff00" if trade['action'] == 'BUY' else "#ff0000"
+    for trade in trade_history[-15:]:
+        color = "#4CAF50" if trade['action'] == 'BUY' else "#F44336"
+        badge = "🟢 ВИРТУАЛЬНАЯ" if trade.get('virtual') else "🔴 РЕАЛЬНАЯ"
+        profit_html = f" | Прибыль: {trade.get('profit', 0):.2f} руб." if trade.get('profit') else ""
+        
         trades_html += f"""
-        <div style="background: #1a1a2e; color: {color}; padding: 15px; margin: 10px 0; border-radius: 5px; border: 1px solid {color};">
-            <strong>🎯 {trade['strategy']}</strong>
-            <br>{trade['action']} <strong>{trade['ticker']}</strong> x{trade['size']} по {trade['price']} руб.
-            <br>📊 Уверенность: {trade['confidence']:.0%} | ⏰ {trade['timestamp']}
-            <br><small>💡 {trade['reason']}</small>
+        <div style="background: {color}; color: white; padding: 15px; margin: 10px 0; border-radius: 5px;">
+            {badge} | {trade['timestamp']} | {trade['strategy']}
+            <br>{trade['action']} <strong>{trade['ticker']}</strong> x{trade['size']} по {trade['price']} руб.{profit_html}
+            <br><small>💡 {trade.get('reason', '')}</small>
         </div>
         """
     
     return f"""
     <html>
-        <body style="font-family: Arial, sans-serif; margin: 40px; background: #0f0f23; color: #00ff00;">
-            <h1>📋 Trade History (All Strategies)</h1>
+        <body style="font-family: Arial, sans-serif; margin: 40px; background: #f8f9fa;">
+            <h1>📋 История Виртуальных Сделок</h1>
             <p><strong>Total Trades:</strong> {len(trade_history)}</p>
-            <p><strong>Active Strategies:</strong> Moment Trading, Arbitrage, News Trading</p>
+            <p><strong>Virtual Portfolio:</strong> {virtual_portfolio_value:.2f} руб.</p>
             {trades_html if trade_history else "<p>No trades yet</p>"}
-            <p><a href="/" style="background: #00ff00; color: black; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold;">← Back to Main</a></p>
-        </body>
-    </html>
-    """
-
-@app.route('/strategies')
-def show_strategies():
-    """Страница с информацией о стратегиях"""
-    return f"""
-    <html>
-        <body style="font-family: Arial, sans-serif; margin: 40px; background: #0f0f23; color: #00ff00;">
-            <h1>🎯 Active Trading Strategies</h1>
-            
-            <div style="background: #1a1a2e; padding: 20px; margin: 15px 0; border-radius: 10px; border: 1px solid #00ff00;">
-                <h3>⚡ Moment Trading Strategy</h3>
-                <p><strong>Frequency:</strong> Every 10 minutes</p>
-                <p><strong>Goal:</strong> 0.5-1% profit per trade</p>
-                <p><strong>Instruments:</strong> SBER, GAZP, VTBR, LKOH, ROSN, YNDX</p>
-            </div>
-            
-            <div style="background: #1a1a2e; padding: 20px; margin: 15px 0; border-radius: 10px; border: 1px solid #ff00ff;">
-                <h3>🔄 Arbitrage Strategy</h3>
-                <p><strong>Method:</strong> Correlation trading between related stocks</p>
-                <p><strong>Pairs:</strong> SBER/VTBR, GAZP/LKOH</p>
-                <p><strong>Goal:</strong> Price difference exploitation</p>
-            </div>
-            
-            <div style="background: #1a1a2e; padding: 20px; margin: 15px 0; border-radius: 10px; border: 1px solid #ffff00;">
-                <h3>📰 News Trading Strategy</h3>
-                <p><strong>Method:</strong> Reaction to corporate news</p>
-                <p><strong>Sources:</strong> RBC, MOEX, Interfax</p>
-                <p><strong>Goal:</strong> Early position on news events</p>
-            </div>
-            
-            <p><a href="/" style="background: #00ff00; color: black; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold;">← Back to Main</a></p>
+            <p><a href="/" style="background: #2196F3; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">← Back to Main</a></p>
         </body>
     </html>
     """
@@ -281,9 +314,10 @@ if __name__ == '__main__':
     scheduler_thread.daemon = True
     scheduler_thread.start()
     
-    logger.info("🚀 MOMENT TRADING BOT STARTED!")
-    logger.info("⚡ Режим: Моментный трейдинг каждые 10 минут")
+    logger.info("🚀 VIRTUAL MOMENT TRADING BOT STARTED!")
+    logger.info("⚡ Режим: Виртуальный трейдинг на реальных данных")
+    logger.info("💰 Стартовый капитал: 100,000 руб.")
     logger.info("🎯 Стратегии: Moment Trading, Arbitrage, News Trading")
-    logger.info("💰 Цель: Максимальная прибыль через частые сделки")
+    logger.info("⏰ Частота: Каждые 10 минут")
     
     app.run(host='0.0.0.0', port=10000, debug=False)
