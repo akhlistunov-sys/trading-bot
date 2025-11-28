@@ -26,30 +26,8 @@ INSTRUMENTS = {
     "GAZP": "BBG004730RP0", 
     "YNDX": "BBG006L8G4H1"
 }
-@app.route('/debug_token')
-def debug_token():
-    """Детальная диагностика токена"""
-    token = os.getenv('TINKOFF_API_TOKEN')
-    
-    info = {
-        "token_exists": bool(token),
-        "token_length": len(token) if token else 0,
-        "token_starts_with_t": token.startswith('t.') if token else False,
-        "token_preview": token[:15] + "..." if token and len(token) > 15 else token,
-        "environment_set": 'TINKOFF_API_TOKEN' in os.environ
-    }
-    
-    # Попробуем проверить токен
-    if token:
-        try:
-            with Client(token) as client:
-                accounts = client.users.get_accounts()
-                info["api_connection"] = "SUCCESS"
-                info["accounts_count"] = len(accounts.accounts)
-        except Exception as e:
-            info["api_connection"] = f"FAILED: {str(e)}"
-    
-    return jsonify(info)def trading_session():
+
+def trading_session():
     """Упрощенная торговая сессия для теста"""
     global last_trading_time, session_count, trade_history
     
@@ -91,9 +69,9 @@ def debug_token():
                     'instrument': 'SBER',
                     'price': prices.get('SBER', 280),
                     'timestamp': current_time,
-                    'mode': 'SIMULATION'
+                    'mode': 'REAL_API'
                 })
-                logger.info("✅ Симуляция торговли завершена")
+                logger.info("✅ Торговая сессия завершена с реальными данными")
             
     except Exception as e:
         logger.error(f"❌ Критическая ошибка: {e}")
@@ -114,17 +92,6 @@ def run_scheduler():
     while True:
         schedule.run_pending()
         time.sleep(1)
-@app.route('/check_env')
-def check_env():
-    """Проверка переменных окружения"""
-    token = os.getenv('TINKOFF_API_TOKEN')
-    all_vars = dict(os.environ)
-    
-    return jsonify({
-        "TINKOFF_API_TOKEN_exists": bool(token),
-        "TINKOFF_API_TOKEN_value": token[:10] + "..." if token else None,
-        "all_environment_variables": list(all_vars.keys())
-    })
 
 @app.route('/')
 def home():
@@ -144,12 +111,13 @@ def home():
                 <p><strong>🕒 Last Trading:</strong> {last_trading_time}</p>
                 <p><strong>🔢 Sessions:</strong> {session_count}</p>
                 <p><strong>💰 Trades:</strong> {len(trade_history)}</p>
-                <p><strong>🎯 Mode:</strong> Tinkoff API</p>
+                <p><strong>🎯 Mode:</strong> Tinkoff API Test</p>
             </div>
             <p>
                 <a href="/status">JSON Status</a> |
                 <a href="/force">Force Trade</a> |
-                <a href="/trades">Trade History</a>
+                <a href="/trades">Trade History</a> |
+                <a href="/check_token">Check Token</a>
             </p>
         </body>
     </html>
@@ -177,7 +145,7 @@ def force_trade():
 def show_trades():
     trades_html = ""
     for trade in trade_history[-10:]:
-        trades_html += f"<p>{trade['timestamp']} - {trade['action']} {trade['instrument']} по {trade['price']} руб.</p>"
+        trades_html += f"<p>{trade['timestamp']} - {trade['action']} {trade['instrument']} по {trade['price']} руб. ({trade['mode']})</p>"
     
     return f"""
     <html>
@@ -186,6 +154,30 @@ def show_trades():
             <p><strong>Total Trades:</strong> {len(trade_history)}</p>
             {trades_html if trade_history else "<p>No trades yet</p>"}
             <p><a href="/">Back to Main</a></p>
+        </body>
+    </html>
+    """
+
+@app.route('/check_token')
+def check_token():
+    """Проверка токена"""
+    token = os.getenv('TINKOFF_API_TOKEN')
+    
+    if not token:
+        return "❌ Токен не найден в переменных окружения"
+    
+    token_preview = token[:10] + "..." if len(token) > 10 else token
+    token_starts_with_t = token.startswith('t.')
+    
+    return f"""
+    <html>
+        <body>
+            <h1>🔐 Проверка токена</h1>
+            <p><strong>Токен существует:</strong> {'✅' if token else '❌'}</p>
+            <p><strong>Начинается с 't.':</strong> {'✅' if token_starts_with_t else '❌'}</p>
+            <p><strong>Префикс токена:</strong> {token_preview}</p>
+            <p><strong>Длина токена:</strong> {len(token)} символов</p>
+            <p><a href="/">На главную</a></p>
         </body>
     </html>
     """
