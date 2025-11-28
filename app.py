@@ -5,8 +5,17 @@ import requests
 from flask import Flask, jsonify
 import threading
 from datetime import datetime
-from tinkoff.invest import Client, OrderDirection, OrderType
-
+try:
+    from tinkoff.invest import Client, OrderDirection, OrderType
+except ImportError:
+    # Fallback для другой версии API
+    from tinkoff.investments import Client
+    # Заглушки для направлений ордеров
+    class OrderDirection:
+        ORDER_DIRECTION_BUY = "buy"
+        ORDER_DIRECTION_SELL = "sell"
+    class OrderType:
+        ORDER_TYPE_MARKET = "market"
 app = Flask(__name__)
 
 # Флаг для отслеживания выполнения торговой сессии
