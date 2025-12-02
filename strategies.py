@@ -1,8 +1,8 @@
-# strategies.py - ПОЛНЫЙ ОБНОВЛЕННЫЙ КОД
+# strategies.py - БЕЗ NUMPY
 import logging
 import datetime
+import math
 import statistics
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -13,28 +13,41 @@ class MomentTradingStrategy:
         self.client = client
         self.account_id = account_id
         self.name = "Moment Trading"
-        self.position_history = {}  # История позиций: {ticker: [покупки]}
+        self.sber_buys = []  # История покупок SBER
         
-    def add_exit_signals(self, prices, current_positions):
-        """Добавляем условия выхода для накопленных позиций"""
+    def add_exit_signals(self, prices):
+        """Условия выхода для SBER"""
         exit_signals = []
         
-        # Выход из SBER позиций
-        sber_position = current_positions.get("SBER", 0)
-        if sber_position > 0 and "SBER" in prices:
+        if "SBER" in prices and self.sber_buys:
             current_price = prices["SBER"]
+            avg_price = sum(self.sber_buys) / len(self.sber_buys)
             
-            # Если накопили много SBER и цена выросла - продаем часть
-            if sber_position >= 20 and current_price > 305:
-                exit_size = min(sber_position, 10)  # Продаем до 10 лотов
+            # Продаем если цена выросла на 1.5%
+            if current_price >= avg_price * 1.015:
+                exit_size = min(len(self.sber_buys) // 2, 10)  # Продаем половину
+                if exit_size > 0:
+                    exit_signals.append({
+                        'action': 'SELL',
+                        'ticker': 'SBER',
+                        'price': current_price,
+                        'size': exit_size,
+                        'confidence': 0.8,
+                        'strategy': self.name + " - Exit",
+                        'reason': f"Фиксация +{(current_price/avg_price-1)*100:.1f}%"
+                    })
+            
+            # Стоп-лосс при падении 2%
+            elif current_price <= avg_price * 0.98:
+                exit_size = min(len(self.sber_buys), 5)
                 exit_signals.append({
                     'action': 'SELL',
                     'ticker': 'SBER',
                     'price': current_price,
                     'size': exit_size,
-                    'confidence': 0.8,
-                    'strategy': self.name + " - Exit",
-                    'reason': f"Фиксация прибыли: накоплено {sber_position} лотов"
+                    'confidence': 0.9,
+                    'strategy': self.name + " - Stop Loss",
+                    'reason': f"Стоп-лосс -{(1-current_price/avg_price)*100:.1f}%"
                 })
         
         return exit_signals
@@ -53,17 +66,22 @@ class MomentTradingStrategy:
                     price = price_obj.units + price_obj.nano / 1e9
                     prices[ticker] = price
             
-            # Упрощенная логика (позже заменим на серьезную)
+            # Упрощенная логика
             if "SBER" in prices and prices["SBER"] < 305:
                 signals.append({
                     'action': 'BUY',
                     'ticker': "SBER",
                     'price': prices["SBER"],
-                    'size': 2,  # Уменьшили размер
+                    'size': 2,
                     'confidence': 0.6,
                     'strategy': self.name,
-                    'reason': f"SBER ниже 305 (текущая: {prices['SBER']})"
+                    'reason': f"SBER ниже 305 ({prices['SBER']})"
                 })
+                self.sber_buys.append(prices["SBER"])
+            
+            # Добавляем сигналы выхода
+            exit_signals = self.add_exit_signals(prices)
+            signals.extend(exit_signals)
                     
         except Exception as e:
             logger.error(f"❌ Ошибка в моментной стратегии: {e}")
@@ -71,86 +89,56 @@ class MomentTradingStrategy:
         return signals
 
 class ArbitrageStrategy:
-    """Серьезная арбитражная стратегия между связанными акциями"""
+    """Арбитражная стратегия без numpy"""
     
     def __init__(self, client, account_id):
         self.client = client
         self.account_id = account_id
-        self.name = "Arbitrage Trading PRO"
-        
-        # Хранение исторических данных
+        self.name = "Arbitrage Trading"
         self.price_history = {}
-        self.ratio_history = {}
+        self.arbitrage_pairs = [('SBER', 'VTBR'), ('GAZP', 'LKOH')]
         
-        # Параметры стратегии
-        self.z_score_threshold = 2.0
-        self.max_position_size = 5
-        self.min_history_points = 20
-        
-        # Арбитражные пары
-        self.arbitrage_pairs = [
-            ('SBER', 'VTBR'),   # Банковский сектор
-            ('GAZP', 'LKOH'),   # Нефтегаз
-            ('GAZP', 'ROSN'),   # Нефтегаз
-        ]
-        
-        logger.info(f"✅ {self.name} инициализирована")
-    
-    def update_price_history(self, ticker, price):
-        """Обновление истории цен"""
-        if ticker not in self.price_history:
-            self.price_history[ticker] = []
-        
-        self.price_history[ticker].append(price)
-        
-        if len(self.price_history[ticker]) > 100:
-            self.price_history[ticker].pop(0)
-    
-    def calculate_ratio(self, price1, price2):
-        """Расчет соотношения цен"""
-        if price2 == 0:
-            return 0
-        # Для VTBR умножаем на 1000 для сопоставимости
-        if price2 < 1:
-            return price1 / (price2 * 1000)
-        return price1 / price2
-    
-    def get_pair_stats(self, ticker1, ticker2):
-        """Статистика по паре"""
+    def calculate_z_score(self, ticker1, ticker2):
+        """Расчет Z-score без numpy"""
         if (ticker1 in self.price_history and ticker2 in self.price_history and
-            len(self.price_history[ticker1]) >= self.min_history_points and
-            len(self.price_history[ticker2]) >= self.min_history_points):
+            len(self.price_history[ticker1]) > 10 and len(self.price_history[ticker2]) > 10):
             
             ratios = []
             min_len = min(len(self.price_history[ticker1]), len(self.price_history[ticker2]))
             
             for i in range(min_len):
-                ratio = self.calculate_ratio(
-                    self.price_history[ticker1][i],
-                    self.price_history[ticker2][i]
-                )
+                price1 = self.price_history[ticker1][i]
+                price2 = self.price_history[ticker2][i]
+                
+                # Для VTBR умножаем на 1000
+                if ticker2 == 'VTBR' and price2 < 1:
+                    ratio = price1 / (price2 * 1000)
+                else:
+                    ratio = price1 / price2 if price2 != 0 else 0
+                
                 ratios.append(ratio)
             
-            if ratios:
-                mean = np.mean(ratios)
-                std = np.std(ratios) if len(ratios) > 1 else 0.01
-                current = self.calculate_ratio(
-                    self.price_history[ticker1][-1],
-                    self.price_history[ticker2][-1]
-                )
+            if len(ratios) > 5:
+                current_ratio = ratios[-1]
+                mean = statistics.mean(ratios)
                 
-                z_score = (current - mean) / std if std > 0 else 0
+                if len(ratios) > 1:
+                    std = statistics.stdev(ratios)
+                else:
+                    std = 0.01
                 
-                return mean, std, current, z_score
+                if std > 0:
+                    z_score = (current_ratio - mean) / std
+                    return z_score, current_ratio, mean
         
-        return None, None, None, None
+        return None, None, None
     
     def analyze(self, instruments):
-        """Основной анализ арбитражных пар"""
+        """Арбитражный анализ"""
         signals = []
         
         try:
-            # Получаем текущие цены
+            # Получаем цены
             prices = {}
             for ticker, figi in instruments.items():
                 last_price = self.client.market_data.get_last_prices(figi=[figi])
@@ -158,56 +146,60 @@ class ArbitrageStrategy:
                     price_obj = last_price.last_prices[0].price
                     price = price_obj.units + price_obj.nano / 1e9
                     prices[ticker] = price
-                    self.update_price_history(ticker, price)
+                    
+                    # Сохраняем историю
+                    if ticker not in self.price_history:
+                        self.price_history[ticker] = []
+                    self.price_history[ticker].append(price)
+                    if len(self.price_history[ticker]) > 50:
+                        self.price_history[ticker].pop(0)
             
             # Анализируем пары
             for ticker1, ticker2 in self.arbitrage_pairs:
                 if ticker1 in prices and ticker2 in prices:
-                    mean, std, current, z_score = self.get_pair_stats(ticker1, ticker2)
+                    z_score, current_ratio, mean_ratio = self.calculate_z_score(ticker1, ticker2)
                     
-                    if z_score is not None and abs(z_score) > self.z_score_threshold:
-                        signal_strength = min(abs(z_score) / 3, 0.9)
-                        
-                        if z_score > 0:  # ticker1 дороже относительно ticker2
+                    if z_score is not None and abs(z_score) > 2.0:
+                        if z_score > 2.0:  # ticker1 перекуплен
                             signals.extend([
                                 {
                                     'action': 'SELL',
                                     'ticker': ticker1,
                                     'price': prices[ticker1],
-                                    'size': self.max_position_size,
-                                    'confidence': signal_strength,
+                                    'size': 3,
+                                    'confidence': min(0.9, abs(z_score) / 3),
                                     'strategy': self.name,
-                                    'reason': f"{ticker1} перекуплен (Z={z_score:.2f})"
+                                    'reason': f"{ticker1} дорогой (Z={z_score:.1f})"
                                 },
                                 {
                                     'action': 'BUY',
                                     'ticker': ticker2,
                                     'price': prices[ticker2],
-                                    'size': self.max_position_size,
-                                    'confidence': signal_strength,
+                                    'size': 3,
+                                    'confidence': min(0.9, abs(z_score) / 3),
                                     'strategy': self.name,
-                                    'reason': f"{ticker2} недооценен (Z={z_score:.2f})"
+                                    'reason': f"{ticker2} дешевый (Z={z_score:.1f})"
                                 }
                             ])
-                        else:  # ticker1 дешевле относительно ticker2
+                        elif z_score < -2.0:  # ticker1 недооценен
                             signals.extend([
                                 {
                                     'action': 'BUY',
                                     'ticker': ticker1,
                                     'price': prices[ticker1],
-                                    'size': self.max_position_size,
-                                    'confidence': signal_strength,
+                                    'size': 3,
+                                    'confidence': min(0.9, abs(z_score) / 3),
                                     'strategy': self.name,
-                                    'reason': f"{ticker1} недооценен (Z={z_score:.2f})"
+                                    'reason': f"{ticker1} дешевый (Z={z_score:.1f})"
                                 },
                                 {
                                     'action': 'SELL',
                                     'ticker': ticker2,
                                     'price': prices[ticker2],
-                                    'size': self.max_position_size,
-                                    'confidence': signal_strength,
+                                    'size': 3,
+                                    'confidence': min(0.9, abs(z_score) / 3),
                                     'strategy': self.name,
-                                    'reason': f"{ticker2} перекуплен (Z={z_score:.2f})"
+                                    'reason': f"{ticker2} дорогой (Z={z_score:.1f})"
                                 }
                             ])
             
@@ -220,7 +212,7 @@ class ArbitrageStrategy:
         return signals
 
 class NewsTradingStrategy:
-    """Упрощенный новостной трейдинг"""
+    """Новостной трейдинг"""
     
     def __init__(self, client, account_id):
         self.client = client
@@ -228,6 +220,5 @@ class NewsTradingStrategy:
         self.name = "News Trading"
         
     def analyze(self, instruments):
-        """Новостной анализ"""
-        # Пока возвращаем пустой список - добавим позже
+        """Пока заглушка"""
         return []
