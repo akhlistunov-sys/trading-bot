@@ -1,9 +1,15 @@
-# Environment files
+# API ключи и секреты
 .env
 .env.local
-.env.production
+.env.*.local
 
-# Python
+# Ключи и токены (любые файлы с ключами)
+*.key
+*.pem
+*.cert
+*.p12
+
+# Файлы Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -18,20 +24,37 @@ eggs/
 lib/
 lib64/
 parts/
-sdist/
+shtools/
 var/
 wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
+# Виртуальные окружения
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Логи
+*.log
+logs/
+
+# Базы данных
+*.db
+*.sqlite
+*.sqlite3
+
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS
+# Операционные системы
 .DS_Store
 .DS_Store?
 ._*
@@ -40,9 +63,20 @@ wheels/
 ehthumbs.db
 Thumbs.db
 
-# Logs
-*.log
-logs/
+# Тестовые данные
+test_data/
+backtest_results/
+
+# Временные файлы AI
+ai_cache/
+model_weights/
+*.h5
+*.pth
+*.pt
+
+# Старые стратегии (если переименовал)
+*_OLD.py
+*_backup.py
 
 # Render
-.render.yaml
+render.yaml
