@@ -1,201 +1,62 @@
-# ai_core.py - ПОЛНЫЙ МОДУЛЬ AI-ТРЕЙДИНГА
-import os
-import json
 import logging
-import asyncio
+import json
+import os
 import httpx
-from datetime import datetime
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
+from typing import Dict, List, Optional
+import statistics
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class MarketState:
-    """Структура для данных рынка"""
-    timestamp: str
-    prices: Dict[str, float]
-    portfolio_cash: float
-    positions: Dict[str, int]
-    price_history: Dict[str, List[float]]
-    signals: List[Dict] = None
-
-class AITradingCore:
-    """Ядро AI-трейдинга с полной автономностью"""
+class AICore:
+    """ИИ-ядро для принятия торговых решений через OpenRouter"""
     
     def __init__(self):
         self.api_key = os.getenv("OPENROUTER_API_KEY")
         if not self.api_key:
-            raise ValueError("❌ OPENROUTER_API_KEY не найден!")
+            raise ValueError("❌ OPENROUTER_API_KEY не найден в переменных окружения")
         
         self.api_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.model = "google/gemini-2.0-flash-exp:free"  # Работает стабильно, хороша для JSON
+        self.model = "google/gemini-2.0-flash-exp:free"  # Стабильная модель
         
-        # Конфигурация системы
-        self.config = {
-            "max_risk_per_trade": 0.02,  # 2% риска на сделку
-            "min_position_value": 5000,   # Минимальная сумма позиции
-            "max_positions": 3,
-            "commission": 0.0005,         # 0.05% комиссия
-        }
+        # Кэш решений для экономии API
+        self.decision_cache = {}
         
-        # История для контекста
-        self.trade_history = []
-        self.performance = {
-            "total_trades": 0,
-            "total_profit": 0.0,
-            "win_rate": 0.0
-        }
-    
-    def collect_market_data(self, tinkoff_client, instruments: Dict) -> MarketState:
-        """Собирает ВСЕ данные рынка для AI"""
-        prices = {}
-        history = {}
+    async def get_trading_decision(self, market_data: Dict) -> List[Dict]:
+        """Получает торговые решения от ИИ"""
         
-        for ticker, figi in instruments.items():
-            try:
-                # Получаем текущую цену
-                last_price = tinkoff_client.market_data.get_last_prices(figi=[figi])
-                if last_price.last_prices:
-                    price_obj = last_price.last_prices[0].price
-                    current_price = price_obj.units + price_obj.nano / 1e9
-                    prices[ticker] = current_price
-                    
-                    # Сохраняем в историю (симуляция - в реальности нужно хранить в БД)
-                    if ticker not in history:
-                        history[ticker] = []
-                    history[ticker].append(current_price)
-                    if len(history[ticker]) > 50:
-                        history[ticker].pop(0)
-                        
-            except Exception as e:
-                logger.error(f"Ошибка сбора данных {ticker}: {e}")
-                prices[ticker] = 0.0
+        # Проверяем кэш (если уже анализировали похожую ситуацию)
+        cache_key = self._create_cache_key(market_data)
+        if cache_key in self.decision_cache:
+            logger.info("🔄 Использую кэшированное решение ИИ")
+            return self.decision_cache[cache_key]
         
-        return MarketState(
-            timestamp=datetime.now().isoformat(),
-            prices=prices,
-            portfolio_cash=100000,  # Заглушка - замени на реальный портфель
-            positions={},           # Заглушка
-            price_history=history
-        )
-    
-    def _create_ai_prompt(self, market: MarketState) -> str:
-        """Создает детальный промпт для AI на основе ВСЕХ данных"""
+        # Формируем промпт для ИИ
+        prompt = self._create_prompt(market_data)
         
-        # Анализ рыночных условий
-        price_analysis = []
-        for ticker, price in market.prices.items():
-            if ticker in market.price_history and len(market.price_history[ticker]) > 5:
-                history = market.price_history[ticker]
-                change = ((price - history[-5]) / history[-5]) * 100 if history[-5] > 0 else 0
-                price_analysis.append(f"{ticker}: {price:.2f} руб. ({change:+.2f}%)")
-        
-        # Арбитражные пары
-        arbitrage_info = []
-        pairs = [("SBER", "VTBR"), ("GAZP", "LKOH")]
-        for ticker1, ticker2 in pairs:
-            if ticker1 in market.prices and ticker2 in market.prices:
-                ratio = market.prices[ticker1] / (market.prices[ticker2] * 1000) if ticker2 == "VTBR" else market.prices[ticker1] / market.prices[ticker2]
-                arbitrage_info.append(f"{ticker1}/{ticker2}: {ratio:.4f}")
-        
-        prompt = f"""
-        # ТОРГОВАЯ СЕССИЯ - AI CORE
-        
-        ## КОНТЕКСТ СИСТЕМЫ:
-        - Время: {market.timestamp}
-        - Баланс: {market.portfolio_cash:.2f} руб.
-        - Макс. риск на сделку: {self.config['max_risk_per_trade']*100}%
-        - Комиссия: {self.config['commission']*100}%
-        
-        ## РЫНОЧНЫЕ ДАННЫЕ:
-        ### Текущие цены:
-        {chr(10).join(f'- {item}' for item in price_analysis)}
-        
-        ### Арбитражные соотношения:
-        {chr(10).join(f'- {item}' for item in arbitrage_info)}
-        
-        ### Историческая волатильность (последние 20 точек):
-        {self._calculate_volatility(market.price_history)}
-        
-        ## ИСТОРИЯ ПРОИЗВОДИТЕЛЬНОСТИ:
-        - Всего сделок: {self.performance['total_trades']}
-        - Общая прибыль: {self.performance['total_profit']:.2f} руб.
-        - Win Rate: {self.performance['win_rate']:.1%}
-        
-        ## ТВОЯ ЗАДАЧА:
-        1. Проанализируй все данные выше
-        2. Определи лучшие торговые возможности
-        3. Верни ТОЛЬКО JSON с сигналами
-        
-        ## ФОРМАТ ОТВЕТА (ТОЛЬКО JSON):
-        {{
-            "signals": [
-                {{
-                    "action": "BUY" или "SELL",
-                    "ticker": "SBER",
-                    "price": 300.50,
-                    "size": 3,
-                    "confidence": 0.85,
-                    "reason": "Краткое логическое обоснование",
-                    "meta": {{
-                        "take_profit": 305.0,
-                        "stop_loss": 298.0,
-                        "timeframe": "5min"
-                    }}
-                }}
-            ],
-            "market_regime": "trending" или "ranging" или "volatile",
-            "risk_level": "low" или "medium" или "high"
-        }}
-        
-        ## ПРАВИЛА:
-        - Рискуй не более {self.config['max_risk_per_trade']*100}% капитала на сделку
-        - Учитывай комиссию {self.config['commission']*100}%
-        - Минимальная сумма позиции: {self.config['min_position_value']} руб.
-        - Максимум {self.config['max_positions']} одновременных позиций
-        - Для VTBR используй коэффициент 1000 (1 SBER ≈ 1000 VTBR)
-        """
-        
-        return prompt
-    
-    def _calculate_volatility(self, history: Dict) -> str:
-        """Рассчитывает волатильность для отчета"""
-        result = []
-        for ticker, prices in history.items():
-            if len(prices) > 10:
-                returns = [(prices[i] - prices[i-1])/prices[i-1] for i in range(1, len(prices))]
-                if returns:
-                    vol = (sum(r**2 for r in returns) / len(returns)) ** 0.5
-                    result.append(f"- {ticker}: {vol*100:.2f}%")
-        return chr(10).join(result) if result else "Недостаточно данных"
-    
-    async def get_ai_decisions(self, market: MarketState) -> Dict:
-        """Основная функция: получает решения от AI"""
-        
-        prompt = self._create_ai_prompt(market)
-        
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     url=self.api_url,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json",
-                        "HTTP-Referer": "https://trading-bot.ai",  # Опционально
+                        "HTTP-Referer": "https://github.com",  # Требование OpenRouter
+                        "X-Title": "Trading AI"
                     },
                     json={
                         "model": self.model,
                         "messages": [
                             {
-                                "role": "system", 
-                                "content": "Ты — ядро автономной AI-трейдинговой системы. Анализируй данные и возвращай ТОЛЬКО JSON с решениями. Никакого текста кроме JSON."
+                                "role": "system",
+                                "content": """Ты — профессиональный алгоритмический трейдер. 
+                                Анализируй данные рынка и возвращай ТОЛЬКО JSON с торговыми сигналами.
+                                Формат: {"signals": [{"action": "BUY/SELL", "ticker": "SBER/VTBR", "reason": "объяснение", "confidence": 0.0-1.0}]}
+                                Никакого пояснительного текста, только JSON."""
                             },
                             {"role": "user", "content": prompt}
                         ],
-                        "temperature": 0.1,  # Низкая температура для консистентности
-                        "max_tokens": 2000,
-                        "response_format": {"type": "json_object"}
+                        "temperature": 0.1,  # Низкая креативность для точности
+                        "max_tokens": 500
                     }
                 )
                 
@@ -203,23 +64,96 @@ class AITradingCore:
                     result = response.json()
                     ai_response = result["choices"][0]["message"]["content"]
                     
-                    try:
-                        decisions = json.loads(ai_response)
-                        logger.info(f"✅ AI сгенерировал {len(decisions.get('signals', []))} сигналов")
-                        return decisions
-                    except json.JSONDecodeError:
-                        logger.error(f"❌ AI вернул не JSON: {ai_response[:200]}")
-                        # Попытка извлечь JSON из текста
-                        import re
-                        json_match = re.search(r'\{.*\}', ai_response, re.DOTALL)
-                        if json_match:
-                            return json.loads(json_match.group())
-                        return {"signals": [], "error": "invalid_json"}
-                        
-                else:
-                    logger.error(f"❌ OpenRouter ошибка {response.status_code}: {response.text}")
-                    return {"signals": [], "error": f"api_{response.status_code}"}
+                    # Извлекаем JSON из ответа
+                    signals = self._parse_ai_response(ai_response)
                     
-            except Exception as e:
-                logger.error(f"❌ Ошибка соединения: {e}")
-                return {"signals": [], "error": str(e)}
+                    # Кэшируем решение
+                    self.decision_cache[cache_key] = signals
+                    if len(self.decision_cache) > 10:
+                        self.decision_cache.pop(next(iter(self.decision_cache)))
+                    
+                    logger.info(f"🧠 ИИ вернул {len(signals)} сигналов")
+                    return signals
+                else:
+                    logger.error(f"❌ Ошибка OpenRouter API: {response.status_code}")
+                    return []
+                    
+        except Exception as e:
+            logger.error(f"❌ Ошибка связи с ИИ: {e}")
+            return []
+    
+    def _create_prompt(self, market_data: Dict) -> str:
+        """Создаёт промпт для ИИ на основе рыночных данных"""
+        
+        prompt = f"""
+        ДАННЫЕ РЫНКА:
+        - Время: {market_data.get('timestamp', 'N/A')}
+        - Капитал: {market_data.get('balance', 100000)} руб.
+        - Позиции: {json.dumps(market_data.get('positions', {}), indent=2)}
+        
+        ТЕКУЩИЕ ЦЕНЫ:
+        {json.dumps(market_data.get('prices', {}), indent=2)}
+        
+        ИСТОРИЧЕСКИЕ ДАННЫЕ:
+        - Среднее соотношение SBER/VTBR: {market_data.get('mean_ratio', 0):.4f}
+        - Текущее соотношение: {market_data.get('current_ratio', 0):.4f}
+        - Z-score отклонения: {market_data.get('z_score', 0):.2f}
+        - Стандартное отклонение: {market_data.get('std_ratio', 0):.4f}
+        
+        АНАЛИЗИРУЙ:
+        1. Парный арбитраж SBER/VTBR (нормализация: 1 SBER = 1000 VTBR)
+        2. Текущее отклонение от исторического среднего
+        3. Риск-менеджмент (макс 2% риска на сделку)
+        4. Время дня (активные/неактивные часы)
+        
+        ПРАВИЛА:
+        - Вход при |Z-score| > 2.0
+        - Выход при |Z-score| < 0.5
+        - Тейк-профит: +1.5%
+        - Стоп-лосс: -1.0%
+        
+        ВЕРНИ JSON С СИГНАЛАМИ (или пустой массив если нет возможностей):
+        """
+        return prompt
+    
+    def _parse_ai_response(self, response: str) -> List[Dict]:
+        """Парсит ответ ИИ в структурированные сигналы"""
+        try:
+            # Ищем JSON в ответе
+            start_idx = response.find('{')
+            end_idx = response.rfind('}') + 1
+            
+            if start_idx == -1 or end_idx == 0:
+                return []
+            
+            json_str = response[start_idx:end_idx]
+            data = json.loads(json_str)
+            
+            signals = []
+            for signal in data.get("signals", []):
+                # Валидация сигнала
+                if all(key in signal for key in ['action', 'ticker', 'reason']):
+                    signals.append({
+                        'action': signal['action'],
+                        'ticker': signal['ticker'],
+                        'reason': signal['reason'],
+                        'confidence': signal.get('confidence', 0.5),
+                        'strategy': 'AI Core',
+                        'take_profit': signal.get('take_profit'),
+                        'stop_loss': signal.get('stop_loss')
+                    })
+            
+            return signals
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ ИИ вернул невалидный JSON: {response[:100]}...")
+            return []
+        except Exception as e:
+            logger.error(f"❌ Ошибка парсинга ответа ИИ: {e}")
+            return []
+    
+    def _create_cache_key(self, market_data: Dict) -> str:
+        """Создаёт ключ для кэша на основе данных"""
+        prices = market_data.get('prices', {})
+        ratio = market_data.get('current_ratio', 0)
+        return f"{prices.get('SBER', 0):.1f}_{prices.get('VTBR', 0):.3f}_{ratio:.4f}"
