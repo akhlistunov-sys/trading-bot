@@ -43,10 +43,11 @@ class PairsTradingStrategy:
         now = datetime.now()
         current_time = now.time()
         hour = now.hour
+        minute = now.minute
         
-        # Активные часы Мосбиржи
+        # Активные часы Мосбиржи (8 проверок)
         active_periods = [
-            (10, 0), (10, 30),   # Утренние прорывы
+            (10, 5), (10, 30),   # Утренние прорывы
             (11, 15),             # Середина утра
             (15, 0), (15, 30),   # Вечерний тренд
             (16, 45),             # Перед закрытием
@@ -55,7 +56,7 @@ class PairsTradingStrategy:
         
         # Проверяем, совпадает ли текущее время с одним из периодов
         for h, m in active_periods:
-            if hour == h and now.minute == m:
+            if hour == h and minute == m:
                 return True
         
         # Не торгуем в обед (13:00-14:30)
@@ -116,7 +117,7 @@ class PairsTradingStrategy:
                             'action': 'BUY',
                             'ticker': 'VTBR',
                             'price': vtbr_price,
-                            'size': self.calculate_position_size(vtbr_price, 0.02),  # 2% риска
+                            'size': 100,  # 1 лот VTBR = 10000 акций, упрощаем до 100
                             'confidence': min(0.9, abs(z_score) / 3),
                             'strategy': self.name,
                             'reason': f"VTBR недооценен на {abs(z_score):.1f}σ (соотношение: {current_ratio:.4f})",
@@ -128,7 +129,7 @@ class PairsTradingStrategy:
                             'action': 'SELL',
                             'ticker': 'SBER',
                             'price': sber_price,
-                            'size': self.calculate_position_size(sber_price, 0.02),
+                            'size': 1,  # 1 лот SBER = 10 акций, упрощаем до 1
                             'confidence': min(0.9, abs(z_score) / 3),
                             'strategy': self.name,
                             'reason': f"SBER переоценен для парной торговли с VTBR",
@@ -143,7 +144,7 @@ class PairsTradingStrategy:
                             'action': 'SELL',
                             'ticker': 'VTBR',
                             'price': vtbr_price,
-                            'size': self.calculate_position_size(vtbr_price, 0.02),
+                            'size': 100,
                             'confidence': min(0.9, abs(z_score) / 3),
                             'strategy': self.name,
                             'reason': f"VTBR переоценен на {z_score:.1f}σ (соотношение: {current_ratio:.4f})",
@@ -155,7 +156,7 @@ class PairsTradingStrategy:
                             'action': 'BUY',
                             'ticker': 'SBER',
                             'price': sber_price,
-                            'size': self.calculate_position_size(sber_price, 0.02),
+                            'size': 1,
                             'confidence': min(0.9, abs(z_score) / 3),
                             'strategy': self.name,
                             'reason': f"SBER недооценен для парной торговли с VTBR",
@@ -174,9 +175,3 @@ class PairsTradingStrategy:
             logger.error(f"❌ Ошибка в парной стратегии: {e}")
             
         return signals
-    
-    def calculate_position_size(self, price, risk_percent=0.02):
-        """Рассчитываем размер позиции на основе 2% риска"""
-        # Для теста: 1 лот для VTBR, 1 лот для SBER
-        # В реальности: (капитал * риск%) / (цена * волатильность)
-        return 1  # Упрощённо, для теста
