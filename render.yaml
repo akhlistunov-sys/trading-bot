@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ai-trading-bot
+    name: trading-bot
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -10,5 +10,7 @@ services:
         value: 3.9.18
       - key: TINKOFF_API_TOKEN
         sync: false
-      - key: OPENROUTER_API_KEY
+      - key: OPENROUTER_API_TOKEN
         sync: false
+    healthCheckPath: /
+    autoDeploy: true
