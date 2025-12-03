@@ -29,7 +29,7 @@ class AITradingCore:
             raise ValueError("❌ OPENROUTER_API_KEY не найден!")
         
         self.api_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.model = "tngtech/deepseek-r1t-chimera:free"
+        self.model = "google/gemini-2.0-flash-exp:free"  # Работает стабильно, хороша для JSON
         
         # Конфигурация системы
         self.config = {
