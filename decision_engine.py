@@ -1,9 +1,9 @@
 import logging
-import math
-from typing import Dict, List, Optional
+from typing import Dict, List  # Добавьте этот импорт
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+# ... остальной код без изменений ...
 
 class DecisionEngine:
     """Движок принятия торговых решений на основе анализа новостей"""
