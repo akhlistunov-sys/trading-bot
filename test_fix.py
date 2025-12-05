@@ -3,37 +3,35 @@ import os
 
 load_dotenv()
 
-# ИСПРАВЛЕНО: Используем OPENROUTER_API_TOKEN как в Render
-key = os.getenv("OPENROUTER_API_TOKEN")  # ← ИСПРАВЛЕНО
+print("=" * 60)
+print("🔧 ТЕСТ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ RENDER")
+print("=" * 60)
 
-print("=" * 50)
-print("🔧 ТЕСТ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ")
-print("=" * 50)
-
-if key:
-    print(f"✅ OPENROUTER_API_TOKEN найден!")
-    print(f"📏 Длина: {len(key)} символов")
-    print(f"🔑 Первые 10 символов: {key[:10]}...")
+# Проверяем OpenRouter
+openrouter_key = os.getenv("OPENROUTER_API_TOKEN")
+if openrouter_key:
+    print(f"✅ OPENROUTER_API_TOKEN: НАЙДЕН ({len(openrouter_key)} символов)")
+    print(f"   Начинается с: {openrouter_key[:10]}...")
 else:
-    print("❌ OPENROUTER_API_TOKEN не найден!")
-    print("⚠️ Проверьте наличие переменной в Render Environment Variables")
+    print("❌ OPENROUTER_API_TOKEN: НЕ НАЙДЕН")
 
-tinkoff_token = os.getenv("TINKOFF_API_TOKEN")
-if tinkoff_token:
-    print(f"✅ TINKOFF_API_TOKEN найден ({len(tinkoff_token)} символов)")
+# Проверяем Tinkoff
+tinkoff_key = os.getenv("TINKOFF_API_TOKEN")
+if tinkoff_key:
+    print(f"✅ TINKOFF_API_TOKEN: НАЙДЕН ({len(tinkoff_key)} символов)")
+    print(f"   Начинается с: {tinkoff_key[:10]}...")
 else:
-    print("❌ TINKOFF_API_TOKEN не найден!")
+    print("❌ TINKOFF_API_TOKEN: НЕ НАЙДЕН")
 
-trading_mode = os.getenv("TRADING_MODE", "AGGRESSIVE_TEST")
-print(f"⚡ TRADING_MODE: {trading_mode}")
+# Другие переменные
+print(f"⚡ TRADING_MODE: {os.getenv('TRADING_MODE', 'AGGRESSIVE_TEST')}")
+print(f"⏰ CHECK_INTERVAL: {os.getenv('CHECK_INTERVAL_MINUTES', '15')} минут")
 
-check_interval = os.getenv("CHECK_INTERVAL_MINUTES", "15")
-print(f"⏰ CHECK_INTERVAL_MINUTES: {check_interval}")
+print("=" * 60)
+print("📋 ВСЕ ПЕРЕМЕННЫЕ С 'API', 'TOKEN', 'KEY':")
+for key, value in sorted(os.environ.items()):
+    if any(word in key.upper() for word in ['API', 'TOKEN', 'KEY', 'MODE', 'INTERVAL']):
+        masked = value[:4] + '*' * max(0, len(value)-8) + value[-4:] if len(value) > 8 else '****'
+        print(f"  {key}: {masked}")
 
-print("=" * 50)
-print("🧪 ВСЕГО ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:")
-for key, value in os.environ.items():
-    if 'TOKEN' in key or 'KEY' in key or 'MODE' in key:
-        masked_value = value[:4] + '*' * (len(value) - 8) + value[-4:] if len(value) > 8 else '****'
-        print(f"  {key}: {masked_value}")
-print("=" * 50)
+print("=" * 60)
