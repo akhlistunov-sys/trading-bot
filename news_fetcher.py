@@ -1,11 +1,11 @@
 import os
 import aiohttp
 import asyncio
-import feedparser
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import json
+import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -13,18 +13,14 @@ class NewsFetcher:
     """Сборщик новостей из различных источников"""
     
     def __init__(self):
-        self.newsapi_key = os.getenv("NewsAPI")  # Из переменных окружения
-        self.zenserp_key = os.getenv("ZENSEPTAPI")  # Из переменных окружения
+        self.newsapi_key = os.getenv("NewsAPI")
+        self.zenserp_key = os.getenv("ZENSEPTAPI")
         
         # Источники RSS MOEX
         self.moex_feeds = {
             "all_news": "https://moex.com/export/news.aspx?cat=100",
             "main_news": "https://moex.com/export/news.aspx?cat=101"
         }
-        
-        # Кэш новостей
-        self.news_cache = []
-        self.cache_timeout = 300  # 5 минут
         
         logger.info("📰 NewsFetcher инициализирован")
     
@@ -36,7 +32,6 @@ class NewsFetcher:
         
         url = "https://newsapi.org/v2/everything"
         
-        # Параметры для финансовых новостей
         params = {
             'q': 'акции OR дивиденды OR отчетность OR квартал OR прибыль',
             'language': 'ru',
@@ -90,7 +85,7 @@ class NewsFetcher:
             'num': 15,
             'hl': 'ru',
             'gl': 'ru',
-            'tbs': 'qdr:d'  # За последний день
+            'tbs': 'qdr:d'
         }
         
         try:
@@ -122,25 +117,36 @@ class NewsFetcher:
             return []
     
     async def fetch_moex_rss(self) -> List[Dict]:
-        """Получение новостей с MOEX RSS"""
+        """Получение новостей с MOEX RSS с использованием XML парсера"""
         articles = []
         
         try:
             for feed_name, feed_url in self.moex_feeds.items():
-                # Используем синхронный парсинг (feedparser не поддерживает async)
-                feed = feedparser.parse(feed_url)
-                
-                if feed.entries:
-                    for entry in feed.entries[:10]:  # Берем первые 10
-                        articles.append({
-                            'source': 'MOEX',
-                            'feed_type': feed_name,
-                            'title': entry.get('title', ''),
-                            'description': entry.get('summary', ''),
-                            'url': entry.get('link', ''),
-                            'published_at': entry.get('published', ''),
-                            'source_name': 'Московская биржа'
-                        })
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(feed_url, timeout=10) as response:
+                        if response.status == 200:
+                            xml_content = await response.text()
+                            
+                            # Простой парсинг RSS XML
+                            root = ET.fromstring(xml_content)
+                            
+                            # Ищем элементы item
+                            for item in root.findall('.//item'):
+                                title_elem = item.find('title')
+                                description_elem = item.find('description')
+                                link_elem = item.find('link')
+                                pub_date_elem = item.find('pubDate')
+                                
+                                if title_elem is not None:
+                                    articles.append({
+                                        'source': 'MOEX',
+                                        'feed_type': feed_name,
+                                        'title': title_elem.text or '',
+                                        'description': description_elem.text if description_elem is not None else '',
+                                        'url': link_elem.text if link_elem is not None else '',
+                                        'published_at': pub_date_elem.text if pub_date_elem is not None else '',
+                                        'source_name': 'Московская биржа'
+                                    })
             
             logger.info(f"✅ MOEX RSS: получено {len(articles)} новостей")
             return articles
