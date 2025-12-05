@@ -27,7 +27,11 @@ class AICore:
                 raise ValueError("OPENROUTER_API_TOKEN не найден")
             
             self.api_url = "https://openrouter.ai/api/v1/chat/completions"
-            self.model = "google/gemini-2.0-flash-exp:free"
+            self.model = "google/gemini-2.0-flash-thinking-exp:free"  # альтернатива
+             # ИЛИ
+            self.model = "meta-llama/llama-3.1-8b-instruct:free"  # другая модель
+# ИЛИ
+            self.model = "microsoft/phi-3-medium-128k-instruct:free"
             self.decision_cache = {}
             self.total_requests = 0
             self.successful_requests = 0
