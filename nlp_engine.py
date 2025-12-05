@@ -3,11 +3,10 @@ import json
 import os
 import httpx
 import asyncio
-from typing import Dict, List, Optional  # Этот импорт уже есть, убедитесь
 from datetime import datetime
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
-# ... остальной код без изменений ...
 
 class NlpEngine:
     """ИИ-движок для анализа новостей с использованием каскада LLM"""
@@ -20,13 +19,18 @@ class NlpEngine:
         if not self.api_key:
             raise ValueError("❌ OPENROUTER_API_TOKEN не найден")
         
-        # Каскад моделей (правильные имена)
+        # ОПТИМАЛЬНЫЙ СПИСОК МОДЕЛЕЙ с DeepSeek TNG
         self.model_priority = [
-            "google/gemini-2.0-flash-exp:free",
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "qwen/qwen3-235b-a22b:free",
-            "google/gemma-3-27b:free",
-            "meta-llama/llama-3.2-3b-instruct:free"
+            # ✅ ПРОВЕРЕННЫЕ И СТАБИЛЬНЫЕ
+            "google/gemini-2.0-flash-exp:free",            # Основная - всегда работает
+            
+            # 🧪 DEEPSEEK TNG МОДЕЛИ (Экспериментальные)
+            "tngtech/deepseek-r1t2-chimera:free",          # DeepSeek R1T2 Chimera
+            "tngtech/deepseek-r1t-chimera:free",           # DeepSeek R1T Chimera
+            
+            # 🔧 РЕЗЕРВНЫЕ МОДЕЛИ
+            "meta-llama/llama-3.1-8b-instruct:free",       # Llama 3.1 8B
+            "mistralai/mistral-7b-instruct:free",          # Mistral 7B
         ]
         
         self.current_model_idx = 0
@@ -38,10 +42,17 @@ class NlpEngine:
         self.successful_requests = 0
         self.model_switches = 0
         self.analysis_cache = {}
+        self.cache_hits = 0
+        self.cache_misses = 0
+        
+        # Задержка между запросами
+        self.request_delay = 2
         
         logger.info(f"🤖 NLP-движок инициализирован")
-        logger.info(f"🧠 Текущая модель: {self.model}")
-        logger.info(f"📋 Всего моделей в каскаде: {len(self.model_priority)}")
+        logger.info(f"🧠 Модели в каскаде ({len(self.model_priority)}):")
+        for i, model in enumerate(self.model_priority):
+            status = "✅" if i == 0 else "🧪" if "deepseek" in model else "🔧"
+            logger.info(f"   {i+1}. {status} {model}")
     
     def _switch_to_next_model(self):
         """Переключение на следующую модель в каскаде"""
@@ -53,10 +64,16 @@ class NlpEngine:
         logger.info(f"🔄 Смена модели: {old_model} → {self.model}")
         return self.model
     
+    def _create_cache_key(self, news_item: Dict) -> str:
+        """Создание ключа для кэша"""
+        title = news_item.get('title', '')[:50].replace(' ', '_').lower()
+        source = news_item.get('source', '')[:20].replace(' ', '_').lower()
+        content_hash = hash(news_item.get('content', '')[:100]) % 10000
+        return f"{source}_{title}_{content_hash}"
+    
     def _create_analysis_prompt(self, news_item: Dict) -> str:
         """Создание промпта для анализа новости"""
         
-        # Основные поля новости
         title = news_item.get('title', '')
         description = news_item.get('description', '')
         content = news_item.get('content', '') or description
@@ -69,58 +86,33 @@ class NlpEngine:
         🏷️ ЗАГОЛОВОК: {title}
         
         📝 ТЕКСТ НОВОСТИ:
-        {content[:1500]}
+        {content[:1200]}
         
         ===== ИНСТРУКЦИЯ ДЛЯ АНАЛИЗА =====
         
-        Ты — профессиональный финансовый аналитик ИИ. Проанализируй новость выше и ответь В СТРОГОМ JSON ФОРМАТЕ.
-        
-        АНАЛИЗИРУЙ СЛЕДУЮЩИЕ АСПЕКТЫ:
-        1. Извлеки все упоминания компаний и их тикеров (например: "Сбербанк" → SBER, "Газпром" → GAZP)
-        2. Определи тип события:
-           - earnings_report: Квартальные/годовые отчеты
-           - dividend: Дивидендные новости
-           - merger_acquisition: Слияния и поглощения
-           - regulatory: Регуляторные изменения
-           - geopolitical: Геополитические события
-           - market_update: Общие рыночные новости
-           - corporate_action: Корпоративные действия
-           - other: Другое
-        3. Оцени важность (impact_score) от 1 до 10:
-           - 1-3: Незначительное влияние
-           - 4-6: Среднее влияние на отдельные компании
-           - 7-8: Серьезное влияние на сектор
-           - 9-10: Критическое влияние на рынок
-        4. Оцени релевантность (relevance_score) от 1 до 100:
-           - 0-30: Низкая релевантность для трейдинга
-           - 31-70: Средняя релевантность
-           - 71-100: Высокая релевантность
-        5. Определи тональность (sentiment):
-           - positive: Позитивная новость
-           - negative: Негативная новость
-           - neutral: Нейтральная новость
-           - mixed: Смешанная тональность
-        6. Определи горизонт влияния (horizon):
-           - immediate: Влияние сегодня/завтра
-           - short_term: Влияние в течение недели
-           - medium_term: Влияние в течение месяца
-           - long_term: Долгосрочное влияние
-        7. Составь краткую суть на русском (2-3 предложения)
+        Ты — финансовый аналитик ИИ. Проанализируй новость выше и ответь В СТРОГОМ JSON ФОРМАТЕ.
         
         ВОЗВРАЩАЙ ТОЛЬКО JSON В СЛЕДУЮЩЕМ ФОРМАТЕ:
         {{
             "analysis": {{
                 "tickers": ["TICKER1", "TICKER2"],
-                "event_type": "тип_события",
-                "impact_score": число_от_1_до_10,
-                "relevance_score": число_от_1_до_100,
-                "sentiment": "тональность",
-                "horizon": "горизонт",
-                "summary": "краткая суть на русском"
+                "event_type": "earnings_report | dividend | merger_acquisition | regulatory | geopolitical | market_update | corporate_action | other",
+                "impact_score": 1-10,
+                "relevance_score": 1-100,
+                "sentiment": "positive | negative | neutral | mixed",
+                "horizon": "immediate | short_term | medium_term | long_term",
+                "summary": "краткая суть на русском (2-3 предложения)"
             }}
         }}
         
-        ТОЛЬКО JSON, БЕЗ ДОПОЛНИТЕЛЬНОГО ТЕКСТА!
+        ИНСТРУКЦИИ:
+        1. Извлеки все упоминания компаний и их тикеров (примеры: "Сбербанк" → SBER, "Газпром" → GAZP, "Лукойл" → LKOH)
+        2. Оцени важность (impact_score): 1-3=низкая, 4-6=средняя, 7-8=высокая, 9-10=критическая
+        3. Оцени релевантность для трейдинга (relevance_score): 1-100
+        4. Определи тональность новости для акций
+        5. Кратко объясни суть
+        
+        ТОЛЬКО JSON, БЕЗ ДОПОЛНИТЕЛЬНОГО ТЕКСТА, БЕЗ МАРКДАУНА, БЕЗ ОБЪЯСНЕНИЙ!
         """
         
         return prompt
@@ -129,15 +121,17 @@ class NlpEngine:
         """Анализ одной новости с помощью ИИ"""
         
         self.total_requests += 1
-        request_id = self.total_requests
-        
-        logger.info(f"🧠 Анализ новости #{request_id}: {news_item.get('title', '')[:50]}...")
         
         # Проверка кэша
-        cache_key = f"{news_item.get('title', '')[:50]}_{news_item.get('source', '')}"
+        cache_key = self._create_cache_key(news_item)
         if cache_key in self.analysis_cache:
-            logger.info(f"🔄 Использую кэшированный анализ")
+            self.cache_hits += 1
+            logger.info(f"🔄 Использую кэшированный анализ (hits: {self.cache_hits})")
             return self.analysis_cache[cache_key]
+        
+        self.cache_misses += 1
+        news_title = news_item.get('title', '')[:50]
+        logger.info(f"🧠 Анализ новости #{self.total_requests}: {news_title}...")
         
         # Пробуем разные модели при ошибках
         max_retries = min(3, len(self.model_priority))
@@ -167,8 +161,8 @@ class NlpEngine:
                                 },
                                 {"role": "user", "content": prompt}
                             ],
-                            "temperature": 0.1,
-                            "max_tokens": 800
+                            "temperature": 0.1,  # Низкая температура для консистентности
+                            "max_tokens": 600
                         }
                     )
                 
@@ -190,27 +184,39 @@ class NlpEngine:
                             oldest = next(iter(self.analysis_cache))
                             del self.analysis_cache[oldest]
                         
-                        logger.info(f"✅ Успешный анализ новости")
+                        logger.info(f"✅ Успешный анализ новости (модель: {self.model})")
                         return analysis_result
                     else:
                         logger.warning(f"⚠️ Не удалось распарсить ответ ИИ")
                         last_error = "Parse error"
                         
-                elif response.status_code in [400, 404, 429]:
-                    # Проблема с моделью или rate limit
+                elif response.status_code in [400, 404]:
+                    # Проблема с моделью
                     error_data = response.json()
                     error_msg = error_data.get('error', {}).get('message', 'Unknown error')
                     
                     logger.warning(f"⚠️ Ошибка модели {self.model}: {error_msg[:100]}")
                     
                     if attempt < max_retries - 1:
-                        # Переключаем модель перед следующей попыткой
-                        next_model = self._switch_to_next_model()
-                        logger.info(f"⏳ Задержка 2 сек перед моделью {next_model}...")
-                        await asyncio.sleep(2)
+                        self._switch_to_next_model()
+                        logger.info(f"⏳ Задержка {self.request_delay} сек перед следующей моделью...")
+                        await asyncio.sleep(self.request_delay)
                         continue
                     else:
                         last_error = f"Все модели недоступны: {error_msg}"
+                        break
+                
+                elif response.status_code == 429:
+                    # Rate limit
+                    logger.warning(f"⚠️ Rate limit для модели {self.model}")
+                    
+                    if attempt < max_retries - 1:
+                        self._switch_to_next_model()
+                        logger.info(f"⏳ Задержка {self.request_delay * 2} сек из-за rate limit...")
+                        await asyncio.sleep(self.request_delay * 2)
+                        continue
+                    else:
+                        last_error = "Rate limit на всех моделях"
                         break
                 
                 else:
@@ -239,7 +245,16 @@ class NlpEngine:
     def _parse_ai_response(self, response: str, news_item: Dict) -> Optional[Dict]:
         """Парсинг ответа ИИ"""
         try:
-            # Ищем JSON в ответе
+            # Очистка ответа - удаляем лишний текст
+            response = response.strip()
+            
+            # Ищем JSON в ответе (удаляем возможные markdown кодовые блоки)
+            if '```json' in response:
+                response = response.split('```json')[1].split('```')[0].strip()
+            elif '```' in response:
+                response = response.split('```')[1].split('```')[0].strip()
+            
+            # Ищем первый { и последний }
             start_idx = response.find('{')
             end_idx = response.rfind('}') + 1
             
@@ -282,12 +297,13 @@ class NlpEngine:
             
             # Логируем результат
             tickers_str = ', '.join(result['tickers']) if result['tickers'] else 'НЕТ ТИКЕРОВ'
-            logger.info(f"📊 Анализ: {tickers_str} | Impact: {result['impact_score']}/10 | Relevance: {result['relevance_score']}/100")
+            logger.info(f"📊 Результат: {tickers_str} | Impact: {result['impact_score']}/10 | Relevance: {result['relevance_score']}/100")
             
             return result
             
         except json.JSONDecodeError as e:
             logger.error(f"❌ Невалидный JSON от ИИ: {str(e)[:50]}")
+            logger.debug(f"💬 Ответ ИИ: {response[:200]}")
             return None
         except Exception as e:
             logger.error(f"❌ Ошибка парсинга ответа ИИ: {str(e)[:50]}")
@@ -299,11 +315,17 @@ class NlpEngine:
     
     def get_stats(self) -> Dict:
         """Статистика работы NLP-движка"""
+        success_rate = (self.successful_requests / self.total_requests * 100) if self.total_requests > 0 else 0
+        
         return {
             'total_requests': self.total_requests,
             'successful_requests': self.successful_requests,
-            'success_rate': (self.successful_requests / self.total_requests * 100) if self.total_requests > 0 else 0,
+            'success_rate': round(success_rate, 1),
             'current_model': self.model,
+            'model_index': self.current_model_idx,
             'model_switches': self.model_switches,
-            'cache_size': len(self.analysis_cache)
+            'cache_size': len(self.analysis_cache),
+            'cache_hits': self.cache_hits,
+            'cache_misses': self.cache_misses,
+            'cache_hit_rate': round((self.cache_hits / (self.cache_hits + self.cache_misses) * 100), 1) if (self.cache_hits + self.cache_misses) > 0 else 0
         }
