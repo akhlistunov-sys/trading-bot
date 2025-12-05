@@ -4,6 +4,10 @@ import os
 import httpx
 from typing import Dict, List, Optional
 import statistics
+from dotenv import load_dotenv  # ← ДОБАВЬ ЭТУ СТРОКУ
+
+# ЗАГРУЗИТЬ ПЕРЕМЕННЫЕ ИЗ .env
+load_dotenv()  # ← ДОБАВЬ ЭТУ СТРОКУ
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +21,6 @@ class AICore:
         
         self.api_url = "https://openrouter.ai/api/v1/chat/completions"
         self.model = "google/gemini-2.0-flash-exp:free"  # Стабильная модель
-        
         # Кэш решений для экономии API
         self.decision_cache = {}
         
