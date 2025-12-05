@@ -2,12 +2,13 @@ import os
 import aiohttp
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
-import json
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional  # Добавьте этот импорт
+import json
 
 logger = logging.getLogger(__name__)
+# ... остальной код без изменений ...
 
 class NewsFetcher:
     """Сборщик новостей из различных источников"""
