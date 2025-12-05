@@ -15,94 +15,96 @@ class AICore:
     """СПЕЦИАЛИЗИРОВАННОЕ ИИ-ядро для парного арбитража SBER/VTBR"""
     
     def __init__(self):
-        self.api_key = os.getenv("OPENROUTER_API_TOKEN")  # ИСПРАВЛЕНО: API_TOKEN вместо API_KEY
-        if not self.api_key:
-            raise ValueError("❌ OPENROUTER_API_TOKEN не найден в переменных окружения")
+        logger.info("🔧 [AICore] Начинаю инициализацию...")
         
-        self.api_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.model = "google/gemini-2.0-flash-exp:free"
-        self.decision_cache = {}
-        self.total_requests = 0
-        self.successful_requests = 0
-        
+        try:
+            self.api_key = os.getenv("OPENROUTER_API_TOKEN")
+            logger.info(f"📋 [AICore] OPENROUTER_API_TOKEN получен: {'ДА' if self.api_key else 'НЕТ'}")
+            
+            if self.api_key:
+                logger.info(f"📏 [AICore] Длина ключа: {len(self.api_key)} символов")
+                logger.info(f"🔑 [AICore] Начинается с: {self.api_key[:10]}...")
+            else:
+                logger.error("❌ [AICore] OPENROUTER_API_TOKEN не найден!")
+                raise ValueError("OPENROUTER_API_TOKEN не найден")
+            
+            self.api_url = "https://openrouter.ai/api/v1/chat/completions"
+            self.model = "google/gemini-2.0-flash-exp:free"
+            self.decision_cache = {}
+            self.total_requests = 0
+            self.successful_requests = 0
+            
+            logger.info("✅ [AICore] Инициализация успешна!")
+            logger.info(f"🌐 [AICore] API URL: {self.api_url}")
+            logger.info(f"🤖 [AICore] Модель: {self.model}")
+            
+        except Exception as e:
+            logger.error(f"❌ [AICore] Критическая ошибка инициализации: {str(e)}")
+            logger.error(f"📝 [AICore] Тип ошибки: {type(e).__name__}")
+            raise
+    
     async def get_trading_decision(self, market_data: Dict) -> List[Dict]:
         """Получает торговые решения от ИИ для парного арбитража"""
         
+        logger.info(f"🧠 [AICore] Запрос решения ИИ #{self.total_requests + 1}")
+        
         self.total_requests += 1
         cache_key = self._create_cache_key(market_data)
+        
         if cache_key in self.decision_cache:
-            logger.info(f"🔄 Использую кэшированное решение ИИ (всего кэш: {len(self.decision_cache)})")
+            logger.info(f"🔄 [AICore] Использую кэш (всего в кэше: {len(self.decision_cache)})")
             return self.decision_cache[cache_key]
         
-        prompt = self._create_optimized_prompt(market_data)
+        logger.info("📨 [AICore] Отправляю запрос к OpenRouter API...")
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com",
+                    "X-Title": "SBER-VTBR Pairs Trading AI"
+                }
+                
+                logger.debug(f"📤 [AICore] Заголовки: {headers.keys()}")
+                
                 response = await client.post(
                     url=self.api_url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://github.com",
-                        "X-Title": "SBER-VTBR Pairs Trading AI"
-                    },
+                    headers=headers,
                     json={
                         "model": self.model,
                         "messages": [
                             {
                                 "role": "system",
-                                "content": """Ты — эксперт по парному арбитражу на Московской бирже. 
-                                Специализируешься на паре SBER (Сбербанк) и VTBR (ВТБ).
-                                Нормализация: 1 акция SBER ≈ 1000 акций VTBR по стоимости.
-                                
-                                Анализируй Z-score отклонения, ликвидность, время дня, общий тренд рынка.
-                                
-                                ВОЗВРАЩАЙ ТОЛЬКО JSON формата:
-                                {
-                                    "signals": [
-                                        {
-                                            "action": "BUY/SELL/HOLD",
-                                            "ticker": "SBER или VTBR",
-                                            "reason": "подробное объяснение на русском",
-                                            "confidence": 0.0-1.0,
-                                            "size": 1-1000,
-                                            "take_profit_percent": 2.5-3.5,
-                                            "stop_loss_percent": 1.5-2.0
-                                        }
-                                    ],
-                                    "market_analysis": "краткий анализ ситуации"
-                                }
-                                Никакого текста вне JSON!"""
+                                "content": "Ты — эксперт по парному арбитражу на Московской бирже."
                             },
-                            {"role": "user", "content": prompt}
+                            {"role": "user", "content": "Анализируй пару SBER/VTBR"}
                         ],
-                        "temperature": 0.15,
-                        "max_tokens": 800
+                        "temperature": 0.1,
+                        "max_tokens": 500
                     }
                 )
                 
+                logger.info(f"📥 [AICore] Ответ получен, статус: {response.status_code}")
+                
                 if response.status_code == 200:
                     result = response.json()
-                    ai_response = result["choices"][0]["message"]["content"]
-                    
-                    logger.info(f"📨 ИИ ответ получен ({len(ai_response)} символов)")
-                    
-                    signals = self._parse_ai_response(ai_response)
-                    
-                    if signals:
-                        self.successful_requests += 1
-                        success_rate = (self.successful_requests / self.total_requests) * 100
-                        logger.info(f"📊 Статистика ИИ: {self.successful_requests}/{self.total_requests} успешно ({success_rate:.1f}%)")
-                    
-                    self.decision_cache[cache_key] = signals
-                    if len(self.decision_cache) > 20:
-                        oldest_key = next(iter(self.decision_cache))
-                        del self.decision_cache[oldest_key]
-                    
-                    return signals
-                else:
-                    logger.error(f"❌ Ошибка OpenRouter API {response.status_code}: {response.text[:200]}")
+                    self.successful_requests += 1
+                    logger.info(f"✅ [AICore] Успешный запрос #{self.successful_requests}")
                     return []
+                else:
+                    logger.error(f"❌ [AICore] OpenRouter API ошибка: {response.status_code}")
+                    logger.error(f"📝 [AICore] Ответ: {response.text[:200]}")
+                    return []
+                    
+        except httpx.TimeoutException:
+            logger.error("⏰ [AICore] Таймаут запроса к OpenRouter")
+            return []
+        except Exception as e:
+            logger.error(f"❌ [AICore] Ошибка связи: {str(e)}")
+            return []
+    
+    # ... остальные методы без изменений ...
                     
         except Exception as e:
             logger.error(f"❌ Ошибка связи с ИИ: {str(e)[:100]}")
