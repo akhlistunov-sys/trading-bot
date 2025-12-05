@@ -33,8 +33,8 @@ strategy_stats = {}
 start_time = datetime.datetime.now()
 
 INSTRUMENTS = {
-    "SBER": "BBG004730N88",
-    "VTBR": "BBG004730ZJ9"
+    "LKOH": "BBG004731032",  # Лукойл
+    "ROSN": "BBG004731354"   # Роснефть
 }
 
 class VirtualPortfolioPro:
