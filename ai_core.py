@@ -21,12 +21,13 @@ class AICore:
         
         logger.info(f"✅ [AICore] Ключ получен ({len(self.api_key)} символов)")
         
-        # Приоритетный список моделей для нефтяного арбитража
+        # ПРАВИЛЬНЫЙ список моделей (исправленные названия)
         self.model_priority = [
-            "google/gemini-2.0-flash-exp:free",          # 1. Основная
-            "meta/llama-3.3-70b-instruct:free",         # 2. Мощная
-            "meta/llama-3.2-3b-instruct:free",          # 3. Быстрая
-            "qwen/qwen3-235b-a22b:free",                # 4. Большая
+            "google/gemini-2.0-flash-exp:free",            # 1. Основная (работала)
+            "meta-llama/llama-3.3-70b-instruct:free",      # 2. Meta-Llama 3.3 70B
+            "meta-llama/llama-3.2-3b-instruct:free",       # 3. Meta-Llama 3.2 3B
+            "qwen/qwen3-235b-a22b:free",                   # 4. Qwen 235B
+            "google/gemma-3-27b:free",                     # 5. Google Gemma 3 27B
         ]
         
         self.current_model_idx = 0
@@ -38,10 +39,16 @@ class AICore:
         self.total_requests = 0
         self.successful_requests = 0
         self.model_switches = 0
+        self.rate_limit_hits = 0
         
-        logger.info(f"🤖 [AICore] Модель: {self.model}")
+        logger.info(f"🤖 [AICore] Модель по умолчанию: {self.model}")
         logger.info(f"🎯 [AICore] Специализация: Нефтяной арбитраж LKOH/ROSN")
         logger.info(f"📊 [AICore] Нормализация: 1 LKOH ≈ 3.5 ROSN")
+        logger.info(f"📋 [AICore] Всего моделей: {len(self.model_priority)}")
+        
+        # Логируем все доступные модели
+        for i, model in enumerate(self.model_priority):
+            logger.info(f"   {i+1}. {model}")
     
     def _switch_to_next_model(self):
         """Переключаемся на следующую модель"""
