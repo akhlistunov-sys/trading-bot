@@ -3,10 +3,11 @@ import json
 import os
 import httpx
 import asyncio
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional  # Этот импорт уже есть, убедитесь
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+# ... остальной код без изменений ...
 
 class NlpEngine:
     """ИИ-движок для анализа новостей с использованием каскада LLM"""
