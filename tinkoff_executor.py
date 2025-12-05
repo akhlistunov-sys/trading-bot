@@ -1,7 +1,6 @@
 import logging
 import os
-from typing import Dict, Optional
-import asyncio
+from typing import Dict, Optional, List  # Добавьте этот импорт
 
 try:
     from tinkoff.invest import Client, RequestError
@@ -27,35 +26,16 @@ class TinkoffExecutor:
         self.available = TINKOFF_AVAILABLE
         self.account_id = None
         
-        # Маппинг тикеров на FIGI (основные российские акции)
+        # Маппинг тикеров на FIGI
         self.ticker_to_figi = {
-            # Нефтегазовый сектор
-            'LKOH': 'BBG004731032',  # Лукойл
-            'ROSN': 'BBG004731354',  # Роснефть
-            'GAZP': 'BBG004730RP0',  # Газпром
-            'NVTK': 'BBG00475J7T5',  # Новатэк
-            
-            # Банки
-            'SBER': 'BBG004730N88',  # Сбербанк
-            'VTBR': 'BBG004730ZJ9',  # ВТБ
-            'TCSG': 'BBG0110F3P74',  # TCS Group (Тинькофф)
-            
-            # Металлы и добыча
-            'GMKN': 'BBG004731489',  # Норникель
-            'ALRS': 'BBG004S681W4',  # Алроса
-            'POLY': 'BBG004S683W7',  # Polymetal
-            
-            # Ритейл и потребительский сектор
-            'MGNT': 'BBG004S681B4',  # Магнит
-            'FIVE': 'BBG00F6NKQ13',  # X5 RetailGroup
-            
-            # Телеком и технологии
-            'MTSS': 'BBG00475K6C3',  # МТС
-            'MOEX': 'BBG004730JJ5',  # Московская биржа
-            
-            # Химия и удобрения
-            'PHOR': 'BBG004S68507',  # ФосАгро
-            'CHMF': 'BBG00475K6X6',  # Северсталь
+            'LKOH': 'BBG004731032', 'ROSN': 'BBG004731354',
+            'GAZP': 'BBG004730RP0', 'NVTK': 'BBG00475J7T5',
+            'SBER': 'BBG004730N88', 'VTBR': 'BBG004730ZJ9',
+            'TCSG': 'BBG0110F3P74', 'GMKN': 'BBG004731489',
+            'ALRS': 'BBG004S681W4', 'POLY': 'BBG004S683W7',
+            'MGNT': 'BBG004S681B4', 'FIVE': 'BBG00F6NKQ13',
+            'MTSS': 'BBG00475K6C3', 'MOEX': 'BBG004730JJ5',
+            'PHOR': 'BBG004S68507', 'CHMF': 'BBG00475K6X6',
         }
         
         logger.info("🏦 Tinkoff Executor инициализирован")
@@ -75,7 +55,6 @@ class TinkoffExecutor:
         
         try:
             with Client(self.token) as client:
-                # Получение последней цены
                 last_prices = client.market_data.get_last_prices(figi=[figi])
                 
                 if last_prices.last_prices:
@@ -106,7 +85,6 @@ class TinkoffExecutor:
                 'size': size
             }
         
-        # Получение текущей цены
         current_price = await self.get_current_price(ticker)
         if not current_price:
             return {
@@ -116,7 +94,6 @@ class TinkoffExecutor:
             }
         
         if virtual_mode:
-            # Виртуальное исполнение
             return {
                 'status': 'EXECUTED_VIRTUAL',
                 'ticker': ticker,
@@ -125,11 +102,9 @@ class TinkoffExecutor:
                 'price': current_price,
                 'total_value': current_price * size,
                 'message': f'Виртуальный ордер: {action} {ticker} x{size} по {current_price:.2f} руб.',
-                'virtual': True,
-                'timestamp': asyncio.get_event_loop().time()
+                'virtual': True
             }
         else:
-            # Реальное исполнение через Tinkoff API
             if not self.available:
                 return {
                     'status': 'ERROR',
@@ -145,9 +120,6 @@ class TinkoffExecutor:
                         'message': f'FIGI не найден для {ticker}',
                         'ticker': ticker
                     }
-                
-                # Здесь будет реальное исполнение через Tinkoff API
-                # Для безопасности пока оставляем виртуальный режим
                 
                 return {
                     'status': 'SIMULATED',
