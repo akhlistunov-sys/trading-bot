@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: trading-bot
+    name: news-ai-trader
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -11,6 +11,10 @@ services:
       - key: TINKOFF_API_TOKEN
         sync: false
       - key: OPENROUTER_API_TOKEN
+        sync: false
+      - key: NewsAPI
+        sync: false
+      - key: ZENSEPTAPI
         sync: false
       - key: TRADING_MODE
         value: AGGRESSIVE_TEST
