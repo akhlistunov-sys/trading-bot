@@ -9,10 +9,10 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class AICore:
-    """Оптимизированное ИИ-ядро для парного арбитража с автопереключением моделей"""
+    """ИИ-ядро для нефтяного арбитража LKOH/ROSN"""
     
     def __init__(self):
-        logger.info("🔧 [AICore] Инициализация...")
+        logger.info("🔧 [AICore] Инициализация для нефтяной пары LKOH/ROSN...")
         
         # Получаем API ключ из окружения Render
         self.api_key = os.getenv("OPENROUTER_API_TOKEN")
@@ -21,13 +21,12 @@ class AICore:
         
         logger.info(f"✅ [AICore] Ключ получен ({len(self.api_key)} символов)")
         
-        # Приоритетный список РАБОЧИХ моделей из твоего списка
+        # Приоритетный список моделей для нефтяного арбитража
         self.model_priority = [
             "google/gemini-2.0-flash-exp:free",          # 1. Основная
             "meta/llama-3.3-70b-instruct:free",         # 2. Мощная
-            "google/gemma-3-27b:free",                  # 3. Стабильная
-            "meta/llama-3.2-3b-instruct:free",          # 4. Быстрая
-            "qwen/qwen3-235b-a22b:free",                # 5. Большая
+            "meta/llama-3.2-3b-instruct:free",          # 3. Быстрая
+            "qwen/qwen3-235b-a22b:free",                # 4. Большая
         ]
         
         self.current_model_idx = 0
@@ -40,28 +39,27 @@ class AICore:
         self.successful_requests = 0
         self.model_switches = 0
         
-        logger.info(f"🤖 [AICore] Модель по умолчанию: {self.model}")
-        logger.info(f"📊 [AICore] Всего моделей в ротации: {len(self.model_priority)}")
+        logger.info(f"🤖 [AICore] Модель: {self.model}")
+        logger.info(f"🎯 [AICore] Специализация: Нефтяной арбитраж LKOH/ROSN")
+        logger.info(f"📊 [AICore] Нормализация: 1 LKOH ≈ 3.5 ROSN")
     
     def _switch_to_next_model(self):
-        """Переключаемся на следующую модель в списке"""
+        """Переключаемся на следующую модель"""
         old_model = self.model
         self.current_model_idx = (self.current_model_idx + 1) % len(self.model_priority)
         self.model = self.model_priority[self.current_model_idx]
         self.model_switches += 1
         
         logger.info(f"🔄 [AICore] Смена модели: {old_model} → {self.model}")
-        logger.info(f"📊 [AICore] Всего переключений: {self.model_switches}")
-        
         return self.model
     
     async def get_trading_decision(self, market_data: Dict) -> List[Dict]:
-        """Получает торговые решения с автоматическим переключением моделей"""
+        """Получает торговые решения для нефтяной пары"""
         
         self.total_requests += 1
         request_id = self.total_requests
         
-        logger.info(f"🧠 [AICore] Запрос #{request_id}, модель: {self.model}")
+        logger.info(f"🧠 [AICore] Запрос #{request_id} для LKOH/ROSN, модель: {self.model}")
         
         # Проверяем кэш
         cache_key = self._create_cache_key(market_data)
@@ -77,8 +75,8 @@ class AICore:
             try:
                 logger.info(f"📨 [AICore] Попытка {attempt+1}/{max_retries} с моделью: {self.model}")
                 
-                # Формируем оптимизированный промпт для трейдинга
-                prompt = self._create_trading_prompt(market_data)
+                # Формируем промпт для нефтяной пары
+                prompt = self._create_oil_trading_prompt(market_data)
                 
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.post(
@@ -87,33 +85,33 @@ class AICore:
                             "Authorization": f"Bearer {self.api_key}",
                             "Content-Type": "application/json",
                             "HTTP-Referer": "https://github.com",
-                            "X-Title": "SBER-VTBR Pairs Trading AI"
+                            "X-Title": "LKOH-ROSN Oil Pairs Trading AI"
                         },
                         json={
                             "model": self.model,
                             "messages": [
                                 {
                                     "role": "system",
-                                    "content": """Ты — эксперт по парному арбитражу на Московской бирже. 
-                                    Специализация: SBER (Сбербанк) vs VTBR (ВТБ). 
-                                    Нормализация: 1 акция SBER ≈ 1000 акций VTBR по стоимости.
+                                    "content": """Ты — эксперт по парному арбитражу в нефтегазовом секторе.
+                                    Специализация: LKOH (Лукойл) vs ROSN (Роснефть).
+                                    Нормализация: 1 акция LKOH ≈ 3.5 акции ROSN по стоимости.
                                     
-                                    Анализируй Z-score, ликвидность, время дня, рыночные тренды.
+                                    Анализируй Z-score, корреляцию нефтяных компаний, макро-факторы.
                                     
                                     ВОЗВРАЩАЙ ТОЛЬКО JSON:
                                     {
                                         "signals": [
                                             {
                                                 "action": "BUY/SELL",
-                                                "ticker": "SBER или VTBR",
-                                                "reason": "объяснение",
+                                                "ticker": "LKOH или ROSN",
+                                                "reason": "подробное объяснение на русском",
                                                 "confidence": 0.0-1.0,
-                                                "size": число,
+                                                "size": число (LKOH: 1-2, ROSN: 10-20),
                                                 "take_profit_percent": 2.5-3.5,
                                                 "stop_loss_percent": 1.5-2.0
                                             }
                                         ],
-                                        "analysis": "краткий анализ"
+                                        "analysis": "краткий анализ нефтяной пары"
                                     }
                                     Только JSON, без других текстов!"""
                                 },
@@ -137,14 +135,13 @@ class AICore:
                     logger.info(f"📊 [AICore] Успешность: {success_rate:.1f}%")
                     
                     # Парсим ответ
-                    signals = self._parse_ai_response(ai_response)
+                    signals = self._parse_oil_ai_response(ai_response)
                     
                     if signals:
-                        logger.info(f"🎯 [AICore] Найдено сигналов: {len(signals)}")
+                        logger.info(f"🎯 [AICore] Найдено сигналов для нефтяной пары: {len(signals)}")
                         # Кэшируем успешный результат
                         self.decision_cache[cache_key] = signals
                         if len(self.decision_cache) > 20:
-                            # Очищаем старые записи
                             oldest = next(iter(self.decision_cache))
                             del self.decision_cache[oldest]
                     
@@ -190,24 +187,28 @@ class AICore:
         
         return []
     
-    def _create_trading_prompt(self, market_data: Dict) -> str:
-        """Создаёт оптимизированный промпт для трейдинга"""
+    def _create_oil_trading_prompt(self, market_data: Dict) -> str:
+        """Создаёт промпт для нефтяного арбитража LKOH/ROSN"""
         
         prices = market_data.get('prices', {})
-        sber_price = prices.get('SBER', 0)
-        vtbr_price = prices.get('VTBR', 0)
-        vtbr_normalized = vtbr_price * 1000 if vtbr_price else 0
+        lkoh_price = prices.get('LKOH', 0)
+        rosneft_price = prices.get('ROSN', 0)
+        rosneft_normalized = market_data.get('rosneft_normalized', 0)
         
         prompt = f"""
-        ===== ДАННЫЕ ДЛЯ ПАРНОГО АРБИТРАЖА SBER/VTBR =====
+        ===== ДАННЫЕ ДЛЯ НЕФТЯНОГО АРБИТРАЖА LKOH/ROSN =====
         
-        📊 ТЕКУЩИЕ ЦЕНЫ:
-        - SBER: {sber_price:.2f} руб.
-        - VTBR: {vtbr_price:.3f} руб.
-        - VTBR (нормализованный x1000): {vtbr_normalized:.2f} руб.
+        🏭 СЕКТОР: Нефтегазовый
+        🎯 ПАРА: LKOH (Лукойл) vs ROSN (Роснефть)
+        📊 НОРМАЛИЗАЦИЯ: 1 акция LKOH ≈ 3.5 акции ROSN по стоимости
+        
+        📈 ТЕКУЩИЕ ЦЕНЫ:
+        - LKOH (Лукойл): {lkoh_price:.0f} руб.
+        - ROSN (Роснефть): {rosneft_price:.0f} руб.
+        - ROSN (нормализованный ×3.5): {rosneft_normalized:.0f} руб.
         
         🔢 МЕТРИКИ АРБИТРАЖА:
-        - Соотношение SBER/VTBR: {market_data.get('current_ratio', 0):.4f}
+        - Соотношение LKOH/ROSN: {market_data.get('current_ratio', 0):.4f}
         - Историческое среднее: {market_data.get('mean_ratio', 0):.4f}
         - Z-score отклонение: {market_data.get('z_score', 0):.2f}σ
         - Волатильность (σ): {market_data.get('std_ratio', 0):.4f}
@@ -215,38 +216,56 @@ class AICore:
         📈 ИСТОРИЯ (последние {market_data.get('history_length', 0)} точек):
         {market_data.get('ratio_history_preview', 'Нет данных')}
         
+        💰 ВИРТУАЛЬНЫЙ ПОРТФЕЛЬ:
+        - Баланс: {market_data.get('balance', 100000):.0f} руб.
+        - Свободные средства: {market_data.get('available_cash', 100000):.0f} руб.
+        
         ⚡ РЕЖИМ ТОРГОВЛИ: АГРЕССИВНОЕ ТЕСТИРОВАНИЕ
         
         🎯 ПАРАМЕТРЫ:
         - Take Profit: 2.5-3.5%
         - Stop Loss: 1.5-2.0%
         - Confidence для входа: >0.7
-        - Макс. позиция: 10% портфеля
+        - Размер позиции: LKOH 1-2 акции, ROSN 10-20 акций
         
         📅 КОНТЕКСТ:
         - Время: {market_data.get('time_of_day', 'N/A')}
         - Активность: {market_data.get('market_hours', 'Основная сессия')}
+        - Сектор: Нефтегазовый
         
-        🔍 АНАЛИЗИРУЙ:
-        1. Отклонение Z-score: |Z| > 2.0 = сильный сигнал
-        2. Направление арбитража:
-           • Z < -2.0: VTBR недооценен → BUY VTBR / SELL SBER
-           • Z > 2.0: VTBR переоценен → SELL VTBR / BUY SBER
-        3. Размер позиции (1-2% риска)
-        4. Время суток (10:00-17:00 = лучшая ликвидность)
+        🔍 АНАЛИЗИРУЙ НЕФТЯНУЮ ПАРУ:
+        1. Обе компании в нефтегазовом секторе - высокая корреляция
+        2. Историческое соотношение: 1 LKOH ≈ 3.5 ROSN
+        3. Текущее отклонение Z-score:
+           • |Z| < 1.5: Нет сигнала
+           • 1.5 < |Z| < 2.0: Слабый сигнал
+           • |Z| > 2.0: Сильный сигнал
         
-        🚨 БЕЗОПАСНОСТЬ:
-        - Не торговать если |Z| < 1.5
-        - Всегда указывай TP и SL
-        - Учитывай комиссии 0.05%
+        4. НАПРАВЛЕНИЕ АРБИТРАЖА:
+           • Z-score < -2.0: ROSN недооценен → BUY ROSN / SELL LKOH
+           • Z-score > 2.0: ROSN переоценен → SELL ROSN / BUY LKOH
         
-        ВЕРНИ JSON С СИГНАЛАМИ ИЛИ ПУСТОЙ МАССИВ [] ЕСЛИ НЕТ ВОЗМОЖНОСТЕЙ.
+        5. РАЗМЕР ПОЗИЦИИ:
+           - LKOH: 1-2 акции (дорогая)
+           - ROSN: 10-20 акций
+        
+        6. РИСК-МЕНЕДЖМЕНТ:
+           - Не более 5% портфеля в сделке
+           - Всегда устанавливай TP и SL
+           - Учитывай комиссии (0.05% Tinkoff)
+        
+        🚨 ПРАВИЛА БЕЗОПАСНОСТИ:
+        - Не открывать позиции если |Z-score| < 1.5
+        - Избегать торговли в первые/последние 30 минут
+        - Принудительный выход при |Z-score| < 0.5
+        
+        ВЕРНИ JSON С СИГНАЛАМИ ДЛЯ НЕФТЯНОЙ ПАРЫ ИЛИ ПУСТОЙ МАССИВ [] ЕСЛИ НЕТ ВОЗМОЖНОСТЕЙ.
         """
         
         return prompt
     
-    def _parse_ai_response(self, response: str) -> List[Dict]:
-        """Парсит ответ ИИ с валидацией"""
+    def _parse_oil_ai_response(self, response: str) -> List[Dict]:
+        """Парсит ответ ИИ для нефтяной пары"""
         try:
             # Ищем JSON в ответе
             start_idx = response.find('{')
@@ -266,7 +285,9 @@ class AICore:
                     continue
                 
                 ticker = signal['ticker']
-                if ticker not in ['SBER', 'VTBR']:
+                # ТОЛЬКО нефтяные тикеры
+                if ticker not in ['LKOH', 'ROSN']:
+                    logger.warning(f"⚠️ [AICore] ИИ указал не нефтяной тикер: {ticker}")
                     continue
                 
                 action = signal['action'].upper()
@@ -278,7 +299,12 @@ class AICore:
                     logger.info(f"⚠️ [AICore] Низкий confidence {confidence:.2f}, пропускаю")
                     continue
                 
-                size = signal.get('size', 100 if ticker == 'VTBR' else 1)
+                # Размеры позиций для нефтяной пары
+                if ticker == 'LKOH':
+                    size = signal.get('size', 1)  # LKOH: 1-2 акции
+                else:  # ROSN
+                    size = signal.get('size', 10)  # ROSN: 10-20 акций
+                
                 price = signal.get('price', 0)
                 
                 tp_percent = float(signal.get('take_profit_percent', 3.0))
@@ -297,7 +323,7 @@ class AICore:
                     'ticker': ticker,
                     'reason': signal['reason'],
                     'confidence': confidence,
-                    'strategy': 'AI Pairs Trading Pro',
+                    'strategy': 'AI Oil Pairs Trading Pro',
                     'price': price,
                     'size': size,
                     'take_profit': round(take_profit, 2),
@@ -305,16 +331,17 @@ class AICore:
                     'take_profit_percent': tp_percent,
                     'stop_loss_percent': sl_percent,
                     'ai_generated': True,
+                    'sector': 'oil',
                     'timestamp': datetime.now().isoformat()
                 }
                 
                 signals.append(validated_signal)
-                logger.info(f"✅ [AICore] Валидный сигнал: {action} {ticker} x{size} (conf: {confidence:.2f})")
+                logger.info(f"✅ [AICore] Нефтяной сигнал: {action} {ticker} x{size} (conf: {confidence:.2f})")
             
             # Логируем анализ если есть
             analysis = data.get("analysis", "")
             if analysis:
-                logger.info(f"🧠 [AICore] Анализ ИИ: {analysis[:120]}...")
+                logger.info(f"🧠 [AICore] Анализ нефтяной пары: {analysis[:120]}...")
             
             return signals
             
@@ -326,16 +353,17 @@ class AICore:
             return []
     
     def _create_cache_key(self, market_data: Dict) -> str:
-        """Создаёт ключ для кэша"""
+        """Создаёт ключ для кэша нефтяной пары"""
         prices = market_data.get('prices', {})
         ratio = market_data.get('current_ratio', 0)
         z_score = market_data.get('z_score', 0)
         hour = datetime.now().hour
         
-        return f"{hour}_{prices.get('SBER', 0):.1f}_{prices.get('VTBR', 0):.3f}_{ratio:.4f}_{z_score:.1f}"
+        # Ключ включает нефтяные тикеры
+        return f"oil_{hour}_{prices.get('LKOH', 0):.0f}_{prices.get('ROSN', 0):.0f}_{ratio:.4f}_{z_score:.1f}"
     
     def get_stats(self) -> Dict:
-        """Статистика работы ИИ"""
+        """Статистика работы ИИ для нефтяной пары"""
         return {
             'total_requests': self.total_requests,
             'successful_requests': self.successful_requests,
@@ -343,5 +371,6 @@ class AICore:
             'current_model': self.model,
             'model_index': self.current_model_idx,
             'model_switches': self.model_switches,
-            'cache_size': len(self.decision_cache)
+            'cache_size': len(self.decision_cache),
+            'specialization': 'LKOH/ROSN Oil Pairs Trading'
         }
