@@ -12,5 +12,9 @@ services:
         sync: false
       - key: OPENROUTER_API_TOKEN
         sync: false
+      - key: TRADING_MODE
+        value: AGGRESSIVE_TEST
+      - key: CHECK_INTERVAL_MINUTES
+        value: 15
     healthCheckPath: /
     autoDeploy: true
