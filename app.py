@@ -245,7 +245,7 @@ HTML_TEMPLATE = """
             padding: 15px;
             margin-bottom: 12px;
             border-radius: 8px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid #e2e8f0
         }
         
         .signal-item.buy {
@@ -479,12 +479,17 @@ async def trading_session_async(force_mode=False):
         
         logger.info(f"✅ Получено {len(all_news)} новостей")
         
-        # 2. NLP-анализ новостей (гибридный: GigaChat → OpenRouter → SimpleAnalyzer)
-        logger.info("🧠 Гибридный анализ новостей...")
+        # 2. NLP-анализ новостей с ПРЕДФИЛЬТРАЦИЕЙ
+        logger.info("🧠 Гибридный анализ новостей с предфильтрацией...")
         analyzed_news = []
         
         for news_item in all_news[:8]:  # Ограничиваем для скорости
-            # Пробуем сначала гибридный анализ (GigaChat + OpenRouter)
+            # БЫСТРАЯ ПРЕДФИЛЬТРАЦИЯ: стоит ли анализировать эту новость?
+            if not simple_analyzer.should_analyze_further(news_item):
+                logger.debug(f"⏩ Пропущена на предфильтрации: {news_item.get('title', '')[:50]}...")
+                continue
+            
+            # Гибридный анализ (GigaChat + OpenRouter)
             analysis = await nlp_engine.analyze_news(news_item)
             
             if not analysis:
@@ -506,7 +511,7 @@ async def trading_session_async(force_mode=False):
             if analysis:
                 analyzed_news.append(analysis)
         
-        logger.info(f"✅ Проанализировано {len(analyzed_news)} новостей")
+        logger.info(f"✅ Проанализировано {len(analyzed_news)} новостей (после предфильтрации)")
         
         # 3. Принятие решений
         logger.info("🎯 Формирование торговых решений...")
@@ -939,6 +944,9 @@ async def test_gigachat():
         return jsonify({"error": "GIGACHATAPI не настроен"})
     
     try:
+        # Импортируем httpx ТОЛЬКО ЗДЕСЬ
+        import httpx
+        
         test_prompt = {
             "model": "GigaChat",
             "messages": [
@@ -999,6 +1007,9 @@ async def test_openrouter():
         return jsonify({"error": "OPENROUTER_API_TOKEN не настроен"})
     
     try:
+        # Импортируем httpx ТОЛЬКО ЗДЕСЬ
+        import httpx
+        
         test_prompt = {
             "model": "google/gemini-2.0-flash-exp:free",
             "messages": [
@@ -1084,13 +1095,17 @@ if __name__ == '__main__':
     # Инициализация системы
     logger.info("=" * 60)
     logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' ЗАПУЩЕН!")
-    logger.info("🎯 Архитектура: Гибридный NLP-анализ")
+    logger.info("🎯 Архитектура: Гибридный NLP-анализ с предфильтрацией")
     logger.info("🏦 Основной провайдер: GigaChat API")
     logger.info("🌍 Резервный провайдер: OpenRouter API")
     logger.info("🧠 Fallback: SimpleAnalyzer")
     logger.info(f"⚡ Режим: {os.getenv('TRADING_MODE', 'AGGRESSIVE_TEST')}")
     logger.info(f"⏰ Проверки: каждые {os.getenv('CHECK_INTERVAL_MINUTES', 15)} минут")
-    logger.info("📊 Портфель: 100,000 руб. (виртуальный)")
+    logger.info(f"📊 Портфель: 100,000 руб. (виртуальный)")
+    logger.info("⚙️ Параметры стратегии:")
+    logger.info(f"   • Размер позиции: {os.getenv('BASE_POSITION_SIZE', '5.0')}%")
+    logger.info(f"   • Стоп-лосс: {os.getenv('BASE_STOP_LOSS', '2.0')}%")
+    logger.info(f"   • Min Confidence: {os.getenv('MIN_CONFIDENCE', '0.7')}")
     logger.info("🌐 Веб-интерфейс: http://0.0.0.0:10000")
     logger.info("=" * 60)
     
