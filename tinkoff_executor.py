@@ -3,7 +3,7 @@ import os
 from typing import Dict, Optional, List  # Добавьте этот импорт
 
 try:
-    from tinkoff.invest import Client  # ← Импорт из tinkoff, не tinkoff-investments
+    from tinkoff.invest import Client  # ← Это ПРАВИЛЬНО для tinkoff-investments
     TINKOFF_AVAILABLE = True
 except ImportError:
     TINKOFF_AVAILABLE = False
