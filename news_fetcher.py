@@ -16,14 +16,14 @@ class NewsFetcher:
         self.newsapi_key = os.getenv("NewsAPI")
         self.zenserp_key = os.getenv("ZENSEPTAPI")
         
+        # Кэш для новостей (чтобы избежать дубликатов в рамках одной сессии)
+        self.news_cache = {}
+        
         # Источники RSS MOEX
         self.moex_feeds = {
             "all_news": "https://moex.com/export/news.aspx?cat=100",
             "main_news": "https://moex.com/export/news.aspx?cat=101"
         }
-        
-        # Простой кэш для устранения дубликатов в рамках одной сессии
-        self.news_cache = {}
         
         logger.info("📰 NewsFetcher инициализирован")
     
@@ -53,6 +53,7 @@ class NewsFetcher:
                         
                         for article in data.get('articles', []):
                             articles.append({
+                                'id': f"newsapi_{article.get('publishedAt', '')}_{len(articles)}",
                                 'source': 'NewsAPI',
                                 'title': article.get('title', ''),
                                 'description': article.get('description', ''),
@@ -60,7 +61,8 @@ class NewsFetcher:
                                 'url': article.get('url', ''),
                                 'published_at': article.get('publishedAt', ''),
                                 'author': article.get('author', ''),
-                                'source_name': article.get('source', {}).get('name', '')
+                                'source_name': article.get('source', {}).get('name', ''),
+                                'fetched_at': datetime.now().isoformat()
                             })
                         
                         logger.info(f"✅ NewsAPI: получено {len(articles)} новостей")
@@ -101,12 +103,14 @@ class NewsFetcher:
                         if 'news_results' in data:
                             for item in data['news_results']:
                                 articles.append({
+                                    'id': f"zenserp_{item.get('date', '')}_{len(articles)}",
                                     'source': 'Zenserp',
                                     'title': item.get('title', ''),
                                     'description': item.get('snippet', ''),
                                     'url': item.get('url', ''),
                                     'published_at': item.get('date', ''),
-                                    'source_name': item.get('source', 'Unknown')
+                                    'source_name': item.get('source', 'Unknown'),
+                                    'fetched_at': datetime.now().isoformat()
                                 })
                         
                         logger.info(f"✅ Zenserp: получено {len(articles)} новостей")
@@ -142,13 +146,15 @@ class NewsFetcher:
                                 
                                 if title_elem is not None:
                                     articles.append({
+                                        'id': f"moex_{pub_date_elem.text if pub_date_elem else ''}_{len(articles)}",
                                         'source': 'MOEX',
                                         'feed_type': feed_name,
                                         'title': title_elem.text or '',
                                         'description': description_elem.text if description_elem is not None else '',
                                         'url': link_elem.text if link_elem is not None else '',
                                         'published_at': pub_date_elem.text if pub_date_elem is not None else '',
-                                        'source_name': 'Московская биржа'
+                                        'source_name': 'Московская биржа',
+                                        'fetched_at': datetime.now().isoformat()
                                     })
             
             logger.info(f"✅ MOEX RSS: получено {len(articles)} новостей")
@@ -159,16 +165,21 @@ class NewsFetcher:
             return []
     
     def _deduplicate_news(self, all_articles: List[Dict]) -> List[Dict]:
-        """Удаление дубликатов новостей"""
-        seen_titles = set()
+        """Удаление дубликатов новостей по заголовку и содержанию"""
+        seen_keys = set()
         unique_articles = []
         
         for article in all_articles:
-            title = article.get('title', '').strip().lower()
-            if title and title not in seen_titles:
-                seen_titles.add(title)
+            # Создаем ключ для проверки дубликатов
+            title_key = article.get('title', '').strip().lower()[:100]
+            desc_key = article.get('description', '').strip().lower()[:50]
+            cache_key = f"{title_key}_{desc_key}"
+            
+            if cache_key not in seen_keys:
+                seen_keys.add(cache_key)
                 unique_articles.append(article)
         
+        logger.info(f"🔄 Удалено {len(all_articles) - len(unique_articles)} дубликатов")
         return unique_articles
     
     async def fetch_all_news(self) -> List[Dict]:
@@ -197,11 +208,6 @@ class NewsFetcher:
         
         # Удаление дубликатов
         unique_articles = self._deduplicate_news(all_articles)
-        
-        # Добавляем timestamp и ID
-        for i, article in enumerate(unique_articles):
-            article['id'] = f"news_{datetime.now().timestamp()}_{i}"
-            article['fetched_at'] = datetime.now().isoformat()
         
         logger.info(f"📊 Всего уникальных новостей: {len(unique_articles)}")
         return unique_articles
