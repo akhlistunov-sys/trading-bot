@@ -1,19 +1,16 @@
 import logging
-from typing import Dict, List  # Добавьте этот импорт
+import os
+from typing import Dict, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
-# ... остальной код без изменений ...
 
 class DecisionEngine:
     """Движок принятия торговых решений на основе анализа новостей"""
     
     def __init__(self):
-        # Параметры стратегии
-        self.base_position_size = 5.0  # Базовый размер позиции в %
-        self.base_stop_loss = 2.0      # Базовый стоп-лосс в %
-        self.min_confidence = 0.7      # Минимальный confidence для входа
-        self.min_impact_score = 5      # Минимальный impact_score для торговли
+        # Загружаем параметры из переменных окружения
+        self._load_parameters()
         
         # Множители для разных типов событий
         self.event_multipliers = {
@@ -44,7 +41,14 @@ class DecisionEngine:
         }
         
         logger.info("🎯 Decision Engine инициализирован")
-        logger.info(f"📊 Базовые параметры: Size={self.base_position_size}%, SL={self.base_stop_loss}%")
+        logger.info(f"📊 Базовые параметры: Size={self.base_position_size}%, SL={self.base_stop_loss}%, MinConf={self.min_confidence}")
+    
+    def _load_parameters(self):
+        """Загрузка параметров из переменных окружения"""
+        self.base_position_size = float(os.getenv("BASE_POSITION_SIZE", "5.0"))
+        self.base_stop_loss = float(os.getenv("BASE_STOP_LOSS", "2.0"))
+        self.min_confidence = float(os.getenv("MIN_CONFIDENCE", "0.7"))
+        self.min_impact_score = int(os.getenv("MIN_IMPACT_SCORE", "5"))
     
     def calculate_position_size(self, analysis: Dict) -> float:
         """Расчет размера позиции по формуле: 5% * (confidence/80) * (impact_score/7)"""
