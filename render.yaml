@@ -6,19 +6,32 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
     envVars:
+      # Версия Python (убедитесь, что файл runtime.txt удален)
       - key: PYTHON_VERSION
-        value: 3.9.18
+        value: 3.11.8
+      # API Keys (Secret)
       - key: TINKOFF_API_TOKEN
         sync: false
       - key: OPENROUTER_API_TOKEN
+        sync: false
+      - key: GIGACHATAPI
         sync: false
       - key: NewsAPI
         sync: false
       - key: ZENSEPTAPI
         sync: false
+      # Настройки Decision Engine (можно менять без переписывания кода)
       - key: TRADING_MODE
         value: AGGRESSIVE_TEST
       - key: CHECK_INTERVAL_MINUTES
         value: 15
+      - key: BASE_POSITION_SIZE
+        value: 5.0
+      - key: BASE_STOP_LOSS
+        value: 2.0
+      - key: MIN_CONFIDENCE
+        value: 0.7
+      - key: MIN_IMPACT_SCORE
+        value: 5
     healthCheckPath: /
     autoDeploy: true
