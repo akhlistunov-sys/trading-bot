@@ -7,4 +7,3 @@ aiohttp==3.9.3
 grpcio==1.62.1
 grpcio-tools==1.62.1
 protobuf==4.25.3
-tinkoff-investments @ git+https://github.com/Tinkoff/invest-python.git@master
