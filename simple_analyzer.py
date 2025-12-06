@@ -5,7 +5,7 @@ from typing import List, Dict
 logger = logging.getLogger(__name__)
 
 class SimpleAnalyzer:
-    """Простой анализатор новостей без ИИ"""
+    """Простой анализатор новостей без ИИ с быстрой предфильтрацией"""
     
     # Расширенный словарь тикеров
     TICKER_MAP = {
@@ -82,9 +82,55 @@ class SimpleAnalyzer:
         'corporate_action': ['совет директоров', 'собрание', 'голосование', 'эмиссия']
     }
     
+    # Финансовые триггеры для быстрой предфильтрации
+    FINANCIAL_TRIGGERS = [
+        'дивиденд', 'отчет', 'прибыль', 'выручка', 'квартал', 'доход', 'убыток',
+        'продаж', 'рост', 'падение', 'инвестиц', 'акци', 'облигац', 'дивиденд',
+        'слияние', 'поглощение', 'дивиденд', 'выплата', 'совет директоров'
+    ]
+    
+    # Приоритетные источники
+    PRIORITY_SOURCES = ['MOEX', 'Интерфакс', 'РБК', 'Ведомости', 'Коммерсант']
+    
+    @staticmethod
+    def should_process(news_item: Dict) -> bool:
+        """Быстрая предфильтрация: стоит ли обрабатывать новость дальше?"""
+        title = news_item.get('title', '').lower()
+        source = news_item.get('source_name', '').lower()
+        
+        # 1. Проверка финансовых триггеров в заголовке
+        has_trigger = any(trigger in title for trigger in SimpleAnalyzer.FINANCIAL_TRIGGERS)
+        
+        # 2. Проверка на наличие хотя бы одного тикера
+        has_ticker = any(keyword in title for keyword in SimpleAnalyzer.TICKER_MAP.keys())
+        
+        # 3. Быстрая проверка тональности (хотя бы одна эмоциональная окраска)
+        text = title
+        has_sentiment = (any(word in text for word in SimpleAnalyzer.POSITIVE_WORDS) or 
+                         any(word in text for word in SimpleAnalyzer.NEGATIVE_WORDS))
+        
+        # Решение: обрабатываем, если есть триггер И (тикер ИЛИ тональность)
+        # Это позволяет пропускать общие рыночные обзоры, но ловить важные события
+        return has_trigger and (has_ticker or has_sentiment)
+    
     @staticmethod
     def analyze_news(news_item: Dict) -> Dict:
         """Простой анализ новости без ИИ"""
+        
+        # Быстрая предфильтрация
+        if not SimpleAnalyzer.should_process(news_item):
+            return {
+                'tickers': [],
+                'event_type': 'other',
+                'impact_score': 1,
+                'relevance_score': 10,
+                'sentiment': 'neutral',
+                'horizon': 'short_term',
+                'summary': 'Не прошла предфильтрацию',
+                'confidence': 0.1,
+                'simple_analysis': True,
+                'filtered_out': True
+            }
         
         title = news_item.get('title', '').lower()
         content = news_item.get('content', '').lower() or news_item.get('description', '').lower()
@@ -144,5 +190,6 @@ class SimpleAnalyzer:
             'horizon': 'short_term',
             'summary': summary,
             'confidence': 0.6 if tickers else 0.3,
-            'simple_analysis': True
+            'simple_analysis': True,
+            'filtered_out': False
         }
