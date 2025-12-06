@@ -9,29 +9,30 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 class NlpEngine:
-    """ИИ-движок для анализа новостей с использованием каскада LLM"""
-    
     def __init__(self):
-        logger.info("🔧 Инициализация NLP-движка...")
-        
-        # API ключ OpenRouter
-        self.api_key = os.getenv("OPENROUTER_API_TOKEN")
-        if not self.api_key:
-            raise ValueError("❌ OPENROUTER_API_TOKEN не найден")
-        
-        # ОПТИМАЛЬНЫЙ СПИСОК МОДЕЛЕЙ с DeepSeek TNG
-        self.model_priority = [
-            # ✅ ПРОВЕРЕННЫЕ И СТАБИЛЬНЫЕ
-            "google/gemini-2.0-flash-exp:free",            # Основная - всегда работает
-            
-            # 🧪 DEEPSEEK TNG МОДЕЛИ (Экспериментальные)
-            "tngtech/deepseek-r1t2-chimera:free",          # DeepSeek R1T2 Chimera
-            "tngtech/deepseek-r1t-chimera:free",           # DeepSeek R1T Chimera
-            
-            # 🔧 РЕЗЕРВНЫЕ МОДЕЛИ
-            "meta-llama/llama-3.1-8b-instruct:free",       # Llama 3.1 8B
-            "mistralai/mistral-7b-instruct:free",          # Mistral 7B
-        ]
+        self.providers = {
+            'gigachat': {
+                'url': 'https://gigachat.devices.sberbank.ru/api/v1/chat/completions',
+                'token': os.getenv('GIGACHATAPI'),
+                'models': ['GigaChat', 'GigaChat-Pro'],
+                'headers': {
+                    'Authorization': f'Bearer {os.getenv("GIGACHATAPI")}',
+                    'Content-Type': 'application/json'
+                }
+            },
+            'openrouter': {
+                'url': 'https://openrouter.ai/api/v1/chat/completions',
+                'token': os.getenv('OPENROUTER_API_TOKEN'),
+                'models': [
+                    'google/gemini-2.0-flash-exp:free',
+                    'mistralai/mistral-7b-instruct:free'
+                ],
+                'headers': {
+                    'Authorization': f'Bearer {os.getenv("OPENROUTER_API_TOKEN")}',
+                    'Content-Type': 'application/json'
+                }
+            }
+        }
         
         self.current_model_idx = 0
         self.model = self.model_priority[self.current_model_idx]
