@@ -1,6 +1,6 @@
 flask==2.3.3
 schedule==1.2.0
-tinkoff-investments
+tinkoff
 requests==2.31.0
 python-dotenv==1.0.0
 httpx==0.27.0
