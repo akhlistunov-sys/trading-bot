@@ -6,17 +6,18 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
     envVars:
-      # --- Версия Python ---
+      # --- Версия Python (совместимая с grpcio) ---
       - key: PYTHON_VERSION
         value: 3.9.18
 
-      # --- Ключевые флаги компилятора для обхода ошибки ---
+      # --- ОСНОВНОЕ РЕШЕНИЕ: Расширенные флаги компилятора ---
+      # Эти флаги отключают проверку типов предупреждений при сборке protobuf внутри grpcio-tools
       - key: CFLAGS
-        value: -Wno-sign-compare -fno-wrapv
+        value: -Wno-sign-compare -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-stringop-overflow -fno-wrapv
       - key: CXXFLAGS
-        value: -Wno-sign-compare -fno-wrapv
+        value: -Wno-sign-compare -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-stringop-overflow -fno-wrapv
 
-      # --- Обязательные API-ключи (укажите в настройках Render) ---
+      # --- Обязательные API-ключи (задайте в настройках Render как Secret Files) ---
       - key: TINKOFF_API_TOKEN
         sync: false
       - key: OPENROUTER_API_TOKEN
@@ -26,7 +27,7 @@ services:
       - key: ZENSEPTAPI
         sync: false
 
-      # --- Параметры стратегии (можно менять для настройки) ---
+      # --- Параметры стратегии (настраиваются через окружение) ---
       - key: TRADING_MODE
         value: AGGRESSIVE_TEST
       - key: CHECK_INTERVAL_MINUTES
