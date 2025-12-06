@@ -5,7 +5,7 @@ from typing import List, Dict
 logger = logging.getLogger(__name__)
 
 class SimpleAnalyzer:
-    """Простой анализатор новостей без ИИ с быстрой предфильтрацией"""
+    """Простой анализатор новостей с быстрой предфильтрацией"""
     
     # Расширенный словарь тикеров
     TICKER_MAP = {
@@ -59,6 +59,21 @@ class SimpleAnalyzer:
         'фск': 'FEES', 'fsk': 'FEES',
     }
     
+    # Ключевые слова для БЫСТРОЙ предфильтрации - новость должна содержать хотя бы одно из этих слов
+    QUICK_FILTER_KEYWORDS = [
+        # Финансовые триггеры
+        'дивиденд', 'отчет', 'прибыль', 'выручка', 'квартал', 'годовой',
+        'продаж', 'покупк', 'сделка', 'актив', 'акции', 'облигац',
+        # Действия
+        'рост', 'падение', 'увеличил', 'снизил', 'повысил', 'понизил',
+        'рекомендует', 'советует', 'предлагает', 'ожидает',
+        # События
+        'слияние', 'поглощение', 'банкротство', 'санкц', 'запрет',
+        'лиценз', 'регулятор', 'правительств', 'закон',
+        # Общие рыночные
+        'рынок', 'бирж', 'инвест', 'трейд', 'торговл', 'котировк'
+    ]
+    
     # Ключевые слова для анализа тональности
     POSITIVE_WORDS = [
         'рост', 'прибыль', 'увеличил', 'повысил', 'дивиденды', 'рекомендует', 'успех',
@@ -82,55 +97,36 @@ class SimpleAnalyzer:
         'corporate_action': ['совет директоров', 'собрание', 'голосование', 'эмиссия']
     }
     
-    # Финансовые триггеры для быстрой предфильтрации
-    FINANCIAL_TRIGGERS = [
-        'дивиденд', 'отчет', 'прибыль', 'выручка', 'квартал', 'доход', 'убыток',
-        'продаж', 'рост', 'падение', 'инвестиц', 'акци', 'облигац', 'дивиденд',
-        'слияние', 'поглощение', 'дивиденд', 'выплата', 'совет директоров'
-    ]
-    
-    # Приоритетные источники
-    PRIORITY_SOURCES = ['MOEX', 'Интерфакс', 'РБК', 'Ведомости', 'Коммерсант']
-    
     @staticmethod
-    def should_process(news_item: Dict) -> bool:
-        """Быстрая предфильтрация: стоит ли обрабатывать новость дальше?"""
+    def should_analyze_further(news_item: Dict) -> bool:
+        """Быстрая предфильтрация: стоит ли анализировать новость глубже?"""
         title = news_item.get('title', '').lower()
-        source = news_item.get('source_name', '').lower()
+        content = news_item.get('content', '').lower() or news_item.get('description', '').lower()
+        text = title + ' ' + content[:200]  # Смотрим только начало для скорости
         
-        # 1. Проверка финансовых триггеров в заголовке
-        has_trigger = any(trigger in title for trigger in SimpleAnalyzer.FINANCIAL_TRIGGERS)
+        # 1. Проверяем наличие финансовых триггеров
+        has_keywords = any(keyword in text for keyword in SimpleAnalyzer.QUICK_FILTER_KEYWORDS)
+        if not has_keywords:
+            logger.debug(f"⏩ Пропускаем новость (нет ключевых слов): {title[:50]}...")
+            return False
         
-        # 2. Проверка на наличие хотя бы одного тикера
-        has_ticker = any(keyword in title for keyword in SimpleAnalyzer.TICKER_MAP.keys())
+        # 2. Быстрый поиск тикеров
+        has_tickers = any(keyword in text for keyword in SimpleAnalyzer.TICKER_MAP.keys())
+        if not has_tickers:
+            logger.debug(f"⏩ Пропускаем новость (нет тикеров): {title[:50]}...")
+            return False
         
-        # 3. Быстрая проверка тональности (хотя бы одна эмоциональная окраска)
-        text = title
-        has_sentiment = (any(word in text for word in SimpleAnalyzer.POSITIVE_WORDS) or 
-                         any(word in text for word in SimpleAnalyzer.NEGATIVE_WORDS))
+        # 3. Проверяем источник (опционально)
+        source = news_item.get('source', '').lower()
+        if 'блог' in source or 'форум' in source:
+            logger.debug(f"⚠️ Новость из ненадежного источника: {source}")
+            return False  # или можно возвращать True, но с пониженным приоритетом
         
-        # Решение: обрабатываем, если есть триггер И (тикер ИЛИ тональность)
-        # Это позволяет пропускать общие рыночные обзоры, но ловить важные события
-        return has_trigger and (has_ticker or has_sentiment)
+        return True
     
     @staticmethod
     def analyze_news(news_item: Dict) -> Dict:
-        """Простой анализ новости без ИИ"""
-        
-        # Быстрая предфильтрация
-        if not SimpleAnalyzer.should_process(news_item):
-            return {
-                'tickers': [],
-                'event_type': 'other',
-                'impact_score': 1,
-                'relevance_score': 10,
-                'sentiment': 'neutral',
-                'horizon': 'short_term',
-                'summary': 'Не прошла предфильтрацию',
-                'confidence': 0.1,
-                'simple_analysis': True,
-                'filtered_out': True
-            }
+        """Полный анализ новости после предфильтрации"""
         
         title = news_item.get('title', '').lower()
         content = news_item.get('content', '').lower() or news_item.get('description', '').lower()
@@ -174,10 +170,15 @@ class SimpleAnalyzer:
         if tickers and (positive_count > 0 or negative_count > 0):
             relevance_score = 75
         
+        # Confidence (уверенность) зависит от количества найденных триггеров
+        confidence = 0.3 + min(0.4, (positive_count + negative_count) * 0.05)
+        if tickers:
+            confidence += 0.3
+        
         # Создаем summary
         if tickers:
             tickers_str = ', '.join(tickers[:3])
-            summary = f"Локальный анализ: найдены {len(tickers)} тикеров ({tickers_str}), тональность: {sentiment}"
+            summary = f"Локальный анализ: найдены {len(tickers)} тикеров ({tickers_str}), тональность: {sentiment}, уверенность: {confidence:.1f}"
         else:
             summary = f"Локальный анализ: тикеры не найдены, тональность: {sentiment}"
         
@@ -189,7 +190,6 @@ class SimpleAnalyzer:
             'sentiment': sentiment,
             'horizon': 'short_term',
             'summary': summary,
-            'confidence': 0.6 if tickers else 0.3,
-            'simple_analysis': True,
-            'filtered_out': False
+            'confidence': confidence,
+            'simple_analysis': True
         }
