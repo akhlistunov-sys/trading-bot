@@ -4,11 +4,10 @@ import asyncio
 import logging
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional  # Добавьте этот импорт
+from typing import List, Dict, Optional
 import json
 
 logger = logging.getLogger(__name__)
-# ... остальной код без изменений ...
 
 class NewsFetcher:
     """Сборщик новостей из различных источников"""
@@ -22,6 +21,9 @@ class NewsFetcher:
             "all_news": "https://moex.com/export/news.aspx?cat=100",
             "main_news": "https://moex.com/export/news.aspx?cat=101"
         }
+        
+        # Простой кэш для устранения дубликатов в рамках одной сессии
+        self.news_cache = {}
         
         logger.info("📰 NewsFetcher инициализирован")
     
