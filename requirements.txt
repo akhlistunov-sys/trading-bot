@@ -1,6 +1,7 @@
+pip<25.3
 flask==2.3.3
 schedule==1.2.0
-tinkoff-api>=1.19  # Исправлено: используем последнюю доступную версию
+tinkoff-api>=1.19
 requests==2.31.0
 python-dotenv==1.0.0
 httpx==0.27.0
