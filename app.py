@@ -808,6 +808,36 @@ def analyze_only():
             "sample_analysis": analyzed[0] if analyzed else None,
             "sample_signals": signals[:3] if signals else []
         }
+
+    @app.route('/test_providers')
+async def test_providers():
+    """Тестирование всех доступных ИИ-провайдеров"""
+    
+    test_news = {
+        'id': 'test_1',
+        'title': 'Сбербанк увеличил прибыль на 25% в третьем квартале',
+        'content': 'Сбербанк сообщил о рекордной прибыли в третьем квартале 2024 года.',
+        'source': 'Test',
+        'source_name': 'Тестовый источник'
+    }
+    
+    try:
+        nlp = NlpEngine()
+        result = await nlp.analyze_news(test_news)
+        
+        return jsonify({
+            'test_time': datetime.datetime.now().isoformat(),
+            'result': result,
+            'stats': nlp.get_stats()
+        })
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'providers': {
+                'gigachat': bool(os.getenv('GIGACHATAPI')),
+                'openrouter': bool(os.getenv('OPENROUTER_API_TOKEN'))
+            }
+        })
     
     result = asyncio.run(analyze_async())
     return jsonify(result)
