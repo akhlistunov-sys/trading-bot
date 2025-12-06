@@ -15,6 +15,7 @@ from nlp_engine import NlpEngine
 from decision_engine import DecisionEngine
 from tinkoff_executor import TinkoffExecutor
 from virtual_portfolio import VirtualPortfolioPro
+from simple_analyzer import SimpleAnalyzer
 
 # Настройка логирования
 logging.basicConfig(
@@ -46,6 +47,7 @@ nlp_engine = NlpEngine()
 decision_engine = DecisionEngine()
 tinkoff_executor = TinkoffExecutor()
 virtual_portfolio = VirtualPortfolioPro(initial_capital=100000)
+simple_analyzer = SimpleAnalyzer()
 
 # HTML шаблон для светлого интерфейса
 HTML_TEMPLATE = """
@@ -309,8 +311,8 @@ HTML_TEMPLATE = """
                 <span class="icon">🤖</span> 
                 AI Новостной Трейдер "Sentiment Hunter"
             </h1>
-            <p><strong>⚡ Режим:</strong> Агрессивное тестирование | NLP-анализ новостей в реальном времени</p>
-            <p><strong>🎯 Стратегия:</strong> Торговля на основе анализа тональности и важности новостей</p>
+            <p><strong>⚡ Режим:</strong> Агрессивное тестирование | Гибридный NLP-анализ</p>
+            <p><strong>🎯 Провайдеры:</strong> GigaChat + OpenRouter + SimpleAnalyzer</p>
         </div>
         
         <!-- Основные метрики -->
@@ -373,7 +375,7 @@ HTML_TEMPLATE = """
                         <div class="stat-value">{{ virtual_positions|length }}</div>
                     </div>
                 </div>
-                <p><strong>🧠 Модель ИИ:</strong> {{ ai_model }}</p>
+                <p><strong>🧠 Провайдер:</strong> {{ ai_provider }}</p>
                 <p><strong>✅ Источники:</strong> {{ sources_status }}</p>
             </div>
         </div>
@@ -398,6 +400,7 @@ HTML_TEMPLATE = """
                     </div>
                     <p><strong>Событие:</strong> {{ signal.event_type }}</p>
                     <p><strong>Важность (Impact):</strong> {{ signal.impact_score }}/10</p>
+                    <p><strong>Провайдер:</strong> {{ signal.ai_provider|default('simple') }}</p>
                     <p><strong>Причина:</strong> {{ signal.reason[:100] }}{% if signal.reason|length > 100 %}...{% endif %}</p>
                     <p><small><strong>Время:</strong> {{ signal.timestamp }}</small></p>
                 </div>
@@ -425,13 +428,19 @@ HTML_TEMPLATE = """
                 <a href="/stats" class="btn btn-primary">
                     <span class="icon">📈</span> Детальная статистика
                 </a>
+                <a href="/test_providers" class="btn btn-warning">
+                    <span class="icon">🔧</span> Тест провайдеров
+                </a>
+                <a href="/env" class="btn btn-danger">
+                    <span class="icon">⚙️</span> Переменные окружения
+                </a>
             </div>
         </div>
         
         <!-- Футер -->
         <div class="footer">
-            <p><em>🤖 AI Новостной Трейдер "Sentiment Hunter" | NLP-анализ в реальном времени | Агрессивное тестирование</em></p>
-            <p>Версия 2.0 | Система работает на базе OpenRouter AI и Tinkoff Invest API</p>
+            <p><em>🤖 AI Новостной Трейдер "Sentiment Hunter" | Гибридный анализ: GigaChat + OpenRouter + SimpleAnalyzer</em></p>
+            <p>Версия 3.0 | Система работает на базе нескольких ИИ-провайдеров</p>
         </div>
     </div>
 </body>
@@ -470,12 +479,30 @@ async def trading_session_async(force_mode=False):
         
         logger.info(f"✅ Получено {len(all_news)} новостей")
         
-        # 2. NLP-анализ новостей
-        logger.info("🧠 Анализ новостей с помощью ИИ...")
+        # 2. NLP-анализ новостей (гибридный: GigaChat → OpenRouter → SimpleAnalyzer)
+        logger.info("🧠 Гибридный анализ новостей...")
         analyzed_news = []
         
-        for news_item in all_news[:10]:  # Ограничиваем для скорости
+        for news_item in all_news[:8]:  # Ограничиваем для скорости
+            # Пробуем сначала гибридный анализ (GigaChat + OpenRouter)
             analysis = await nlp_engine.analyze_news(news_item)
+            
+            if not analysis:
+                # Если гибридный анализ не сработал, используем простой анализатор
+                logger.info("🔄 Использую простой анализатор как fallback")
+                simple_analysis = simple_analyzer.analyze_news(news_item)
+                if simple_analysis:
+                    # Добавляем метаданные
+                    simple_analysis.update({
+                        'news_id': news_item.get('id', ''),
+                        'news_title': news_item.get('title', ''),
+                        'news_source': news_item.get('source', ''),
+                        'analysis_timestamp': datetime.datetime.now().isoformat(),
+                        'ai_provider': 'simple',
+                        'confidence': simple_analysis.get('confidence', 0.6)
+                    })
+                    analysis = simple_analysis
+            
             if analysis:
                 analyzed_news.append(analysis)
         
@@ -545,13 +572,14 @@ async def trading_session_async(force_mode=False):
             'total_signals_generated': len(all_signals),
             'total_trades_executed': len(executed_trades),
             'session_profit': session_profit,
-            'ai_model': nlp_engine.get_current_model(),
+            'nlp_stats': nlp_engine.get_stats(),
             'decision_engine_stats': decision_engine.get_stats(),
             'virtual_portfolio_stats': virtual_portfolio.get_stats()
         }
         
         # Обновление статуса
-        bot_status = f"🤖 AI Новостной Трейдер | ROI: {total_virtual_return:+.1f}% | Сигналов: {len(all_signals)}"
+        current_provider = nlp_engine.get_current_provider()
+        bot_status = f"🤖 AI Трейдер | {current_provider.upper()} | ROI: {total_virtual_return:+.1f}% | Сигналов: {len(all_signals)}"
         
         logger.info(f"💰 СЕССИЯ #{session_count} ЗАВЕРШЕНА")
         logger.info(f"💎 Портфель: {total_value:.2f} руб. ({total_virtual_return:+.2f}%)")
@@ -616,8 +644,8 @@ def home():
     virtual_positions = virtual_portfolio.positions if 'virtual_portfolio' in globals() else {}
     virtual_portfolio_value = virtual_portfolio.get_total_value({}) if 'virtual_portfolio' in globals() else 100000
     
-    # Получение текущей модели ИИ
-    ai_model = nlp_engine.get_current_model() if 'nlp_engine' in globals() else "Не инициализирована"
+    # Получение текущего провайдера ИИ
+    ai_provider = nlp_engine.get_current_provider() if 'nlp_engine' in globals() else "Не инициализирован"
     
     # Статус источников
     sources_status = "✅ NewsAPI, ✅ Zenserp, ⚠️ RSS MOEX"
@@ -636,7 +664,7 @@ def home():
         last_news_count=last_news_count,
         last_signals=last_signals[:5] if last_signals else [],
         virtual_positions=virtual_positions,
-        ai_model=ai_model,
+        ai_provider=ai_provider,
         sources_status=sources_status
     )
 
@@ -672,7 +700,7 @@ def show_trades():
                 color = "#6b7280"
                 icon = "⚪"
         
-        ai_badge = " 🧠" if trade.get('ai_generated') else ""
+        ai_badge = f" {trade.get('ai_provider', 'simple').upper()}" if trade.get('ai_provider') else ""
         profit_html = ""
         if trade.get('profit', 0) != 0:
             profit_class = "positive" if trade.get('profit', 0) > 0 else "negative"
@@ -727,6 +755,8 @@ def status():
     portfolio_stats = virtual_portfolio.get_stats() if 'virtual_portfolio' in globals() else {}
     uptime = datetime.datetime.now() - start_time
     
+    nlp_stats = nlp_engine.get_stats() if 'nlp_engine' in globals() else {}
+    
     return jsonify({
         "status": bot_status,
         "uptime_seconds": int(uptime.total_seconds()),
@@ -738,6 +768,7 @@ def status():
         "total_profit": total_virtual_profit,
         "last_trading_time": last_trading_time,
         "portfolio_stats": portfolio_stats,
+        "nlp_stats": nlp_stats,
         "system_stats": system_stats,
         "last_news_count": last_news_count,
         "last_signals_count": len(last_signals) if last_signals else 0,
@@ -745,7 +776,11 @@ def status():
         "strategy": "News NLP Trading with AI",
         "trading_mode": os.getenv("TRADING_MODE", "AGGRESSIVE_TEST"),
         "check_interval": os.getenv("CHECK_INTERVAL_MINUTES", 15),
-        "ai_model": nlp_engine.get_current_model() if 'nlp_engine' in globals() else "Unknown"
+        "ai_provider": nlp_engine.get_current_provider() if 'nlp_engine' in globals() else "Unknown",
+        "providers_configured": {
+            "gigachat": bool(os.getenv("GIGACHATAPI")),
+            "openrouter": bool(os.getenv("OPENROUTER_API_TOKEN"))
+        }
     })
 
 @app.route('/stats')
@@ -753,21 +788,21 @@ def detailed_stats():
     """Детальная статистика"""
     portfolio_stats = virtual_portfolio.get_stats() if 'virtual_portfolio' in globals() else {}
     
-    # Разделение сделок на AI и локальные
+    # Разделение сделок по провайдерам
     ai_trades = [t for t in trade_history if t.get('ai_generated')]
-    local_trades = [t for t in trade_history if not t.get('ai_generated')]
+    simple_trades = [t for t in trade_history if not t.get('ai_generated')]
     
     ai_profits = [t.get('profit', 0) for t in ai_trades if t.get('profit') is not None]
-    local_profits = [t.get('profit', 0) for t in local_trades if t.get('profit') is not None]
+    simple_profits = [t.get('profit', 0) for t in simple_trades if t.get('profit') is not None]
     
     ai_avg = sum(ai_profits)/len(ai_profits) if ai_profits else 0
-    local_avg = sum(local_profits)/len(local_profits) if local_profits else 0
+    simple_avg = sum(simple_profits)/len(simple_profits) if simple_profits else 0
     
     return jsonify({
         "performance_summary": {
             "total_trades": len(trade_history),
             "ai_trades": len(ai_trades),
-            "local_trades": len(local_trades),
+            "simple_trades": len(simple_trades),
             "win_rate": portfolio_stats.get('win_rate', 0),
             "total_profit": total_virtual_profit,
             "virtual_return": total_virtual_return
@@ -777,6 +812,11 @@ def detailed_stats():
             "executed_trades": len(ai_trades),
             "avg_profit_per_trade": ai_avg,
             "success_rate": (len([p for p in ai_profits if p > 0]) / len(ai_profits) * 100) if ai_profits else 0
+        },
+        "simple_performance": {
+            "executed_trades": len(simple_trades),
+            "avg_profit_per_trade": simple_avg,
+            "success_rate": (len([p for p in simple_profits if p > 0]) / len(simple_profits) * 100) if simple_profits else 0
         },
         "portfolio_status": {
             "current_value": virtual_portfolio.get_total_value({}),
@@ -792,8 +832,22 @@ def analyze_only():
         all_news = await news_fetcher.fetch_all_news()
         analyzed = []
         
-        for news_item in all_news[:5]:
+        for news_item in all_news[:3]:
+            # Гибридный анализ
             analysis = await nlp_engine.analyze_news(news_item)
+            
+            if not analysis:
+                # Fallback на simple analyzer
+                simple_result = simple_analyzer.analyze_news(news_item)
+                if simple_result:
+                    simple_result.update({
+                        'news_id': news_item.get('id', ''),
+                        'news_title': news_item.get('title', ''),
+                        'analysis_timestamp': datetime.datetime.now().isoformat(),
+                        'ai_provider': 'simple'
+                    })
+                    analysis = simple_result
+            
             if analysis:
                 analyzed.append(analysis)
         
@@ -806,41 +860,219 @@ def analyze_only():
             "news_analyzed": len(analyzed),
             "signals_generated": len(signals),
             "sample_analysis": analyzed[0] if analyzed else None,
-            "sample_signals": signals[:3] if signals else []
+            "sample_signals": signals[:3] if signals else [],
+            "nlp_stats": nlp_engine.get_stats()
         }
-
-    @app.route('/test_providers')
-async def test_providers():
-    """Тестирование всех доступных ИИ-провайдеров"""
-    
-    test_news = {
-        'id': 'test_1',
-        'title': 'Сбербанк увеличил прибыль на 25% в третьем квартале',
-        'content': 'Сбербанк сообщил о рекордной прибыли в третьем квартале 2024 года.',
-        'source': 'Test',
-        'source_name': 'Тестовый источник'
-    }
-    
-    try:
-        nlp = NlpEngine()
-        result = await nlp.analyze_news(test_news)
-        
-        return jsonify({
-            'test_time': datetime.datetime.now().isoformat(),
-            'result': result,
-            'stats': nlp.get_stats()
-        })
-    except Exception as e:
-        return jsonify({
-            'error': str(e),
-            'providers': {
-                'gigachat': bool(os.getenv('GIGACHATAPI')),
-                'openrouter': bool(os.getenv('OPENROUTER_API_TOKEN'))
-            }
-        })
     
     result = asyncio.run(analyze_async())
     return jsonify(result)
+
+@app.route('/test_providers')
+def test_providers_page():
+    """Страница тестирования провайдеров"""
+    
+    providers_info = {
+        'gigachat': {
+            'configured': bool(os.getenv('GIGACHATAPI')),
+            'status': '✅ Настроен' if os.getenv('GIGACHATAPI') else '❌ Не настроен',
+            'token_preview': os.getenv('GIGACHATAPI', '')[:10] + '...' if os.getenv('GIGACHATAPI') else 'Нет'
+        },
+        'openrouter': {
+            'configured': bool(os.getenv('OPENROUTER_API_TOKEN')),
+            'status': '✅ Настроен' if os.getenv('OPENROUTER_API_TOKEN') else '❌ Не настроен',
+            'token_preview': os.getenv('OPENROUTER_API_TOKEN', '')[:10] + '...' if os.getenv('OPENROUTER_API_TOKEN') else 'Нет'
+        }
+    }
+    
+    return f"""
+    <html>
+        <head>
+            <title>Тест ИИ-провайдеров</title>
+            <style>
+                body {{ font-family: Arial; margin: 40px; background: #f8fafc; color: #334155; }}
+                .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }}
+                .provider {{ padding: 20px; margin: 15px 0; border-radius: 10px; border-left: 4px solid #3b82f6; background: #f1f5f9; }}
+                .btn {{ display: inline-block; padding: 12px 24px; margin: 10px 5px; border-radius: 8px; text-decoration: none; color: white; font-weight: bold; }}
+                .btn-test {{ background: #10b981; }}
+                .btn-test:hover {{ background: #0da271; }}
+                .btn-back {{ background: #3b82f6; }}
+                .btn-back:hover {{ background: #2563eb; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🔧 Тестирование ИИ-провайдеров</h1>
+                <p>Проверка работы GigaChat и OpenRouter API</p>
+                
+                <div class="provider">
+                    <h3>🏦 GigaChat API (Сбербанк)</h3>
+                    <p><strong>Статус:</strong> {providers_info['gigachat']['status']}</p>
+                    <p><strong>Токен:</strong> {providers_info['gigachat']['token_preview']}</p>
+                    <p><strong>Scope:</strong> GIGACHAT_API_PERS</p>
+                    <p><strong>Endpoint:</strong> https://gigachat.devices.sberbank.ru/api/v1/chat/completions</p>
+                    <a href="/test_gigachat" class="btn btn-test">🧪 Тест GigaChat</a>
+                </div>
+                
+                <div class="provider">
+                    <h3>🌍 OpenRouter API</h3>
+                    <p><strong>Статус:</strong> {providers_info['openrouter']['status']}</p>
+                    <p><strong>Токен:</strong> {providers_info['openrouter']['token_preview']}</p>
+                    <p><strong>Модели:</strong> Gemini, Mistral, DeepSeek</p>
+                    <p><strong>Endpoint:</strong> https://openrouter.ai/api/v1/chat/completions</p>
+                    <a href="/test_openrouter" class="btn btn-test">🧪 Тест OpenRouter</a>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <a href="/" class="btn btn-back">← На главную</a>
+                    <a href="/analyze" class="btn btn-test">📰 Тест полного анализа</a>
+                </div>
+            </div>
+        </body>
+    </html>
+    """
+
+@app.route('/test_gigachat')
+async def test_gigachat():
+    """Тестирование GigaChat API"""
+    
+    if not os.getenv('GIGACHATAPI'):
+        return jsonify({"error": "GIGACHATAPI не настроен"})
+    
+    try:
+        test_prompt = {
+            "model": "GigaChat",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Ты — помощник. Отвечай кратко."
+                },
+                {
+                    "role": "user", 
+                    "content": "Привет! Это тест API. Ответь '✅ GigaChat работает'"
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 50
+        }
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                url="https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {os.getenv('GIGACHATAPI')}",
+                    "Content-Type": "application/json"
+                },
+                json=test_prompt
+            )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return jsonify({
+                "status": "success",
+                "provider": "gigachat",
+                "response_code": response.status_code,
+                "response": data.get("choices", [{}])[0].get("message", {}).get("content", "Пустой ответ"),
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "provider": "gigachat",
+                "response_code": response.status_code,
+                "error": response.text[:200],
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "status": "exception",
+            "provider": "gigachat",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+
+@app.route('/test_openrouter')
+async def test_openrouter():
+    """Тестирование OpenRouter API"""
+    
+    if not os.getenv('OPENROUTER_API_TOKEN'):
+        return jsonify({"error": "OPENROUTER_API_TOKEN не настроен"})
+    
+    try:
+        test_prompt = {
+            "model": "google/gemini-2.0-flash-exp:free",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant. Respond briefly."
+                },
+                {
+                    "role": "user", 
+                    "content": "Hello! This is an API test. Respond '✅ OpenRouter works'"
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 50
+        }
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {os.getenv('OPENROUTER_API_TOKEN')}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com"
+                },
+                json=test_prompt
+            )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return jsonify({
+                "status": "success",
+                "provider": "openrouter",
+                "response_code": response.status_code,
+                "response": data.get("choices", [{}])[0].get("message", {}).get("content", "Empty response"),
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "provider": "openrouter",
+                "response_code": response.status_code,
+                "error": response.text[:200],
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "status": "exception",
+            "provider": "openrouter",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+
+@app.route('/env')
+def show_env():
+    """Показать переменные окружения (безопасно)"""
+    
+    env_vars = {}
+    for key, value in sorted(os.environ.items()):
+        if any(word in key.upper() for word in ['API', 'TOKEN', 'KEY', 'SECRET']):
+            # Маскируем чувствительные данные
+            if value and len(value) > 8:
+                masked = value[:4] + '*' * max(0, len(value)-8) + value[-4:]
+                env_vars[key] = f"{masked} (длина: {len(value)})"
+            else:
+                env_vars[key] = "****"
+        elif 'MODE' in key or 'INTERVAL' in key:
+            env_vars[key] = value
+    
+    return jsonify({
+        "environment_variables": env_vars,
+        "total_vars": len(env_vars),
+        "timestamp": datetime.datetime.now().isoformat()
+    })
 
 if __name__ == '__main__':
     # Запуск планировщика
@@ -852,13 +1084,20 @@ if __name__ == '__main__':
     # Инициализация системы
     logger.info("=" * 60)
     logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' ЗАПУЩЕН!")
-    logger.info("🎯 Стратегия: NLP-анализ новостей в реальном времени")
-    logger.info("🧠 ИИ: Каскад моделей через OpenRouter API")
+    logger.info("🎯 Архитектура: Гибридный NLP-анализ")
+    logger.info("🏦 Основной провайдер: GigaChat API")
+    logger.info("🌍 Резервный провайдер: OpenRouter API")
+    logger.info("🧠 Fallback: SimpleAnalyzer")
     logger.info(f"⚡ Режим: {os.getenv('TRADING_MODE', 'AGGRESSIVE_TEST')}")
     logger.info(f"⏰ Проверки: каждые {os.getenv('CHECK_INTERVAL_MINUTES', 15)} минут")
     logger.info("📊 Портфель: 100,000 руб. (виртуальный)")
     logger.info("🌐 Веб-интерфейс: http://0.0.0.0:10000")
     logger.info("=" * 60)
+    
+    # Логируем конфигурацию провайдеров
+    logger.info("🔧 Конфигурация провайдеров:")
+    logger.info(f"   GigaChat: {'✅ Настроен' if os.getenv('GIGACHATAPI') else '❌ Не настроен'}")
+    logger.info(f"   OpenRouter: {'✅ Настроен' if os.getenv('OPENROUTER_API_TOKEN') else '❌ Не настроен'}")
     
     # Запуск Flask приложения
     app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
