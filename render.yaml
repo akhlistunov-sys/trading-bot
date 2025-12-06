@@ -1,45 +1,21 @@
-services:
-  - type: web
-    name: news-ai-trader
-    env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python app.py
-    envVars:
-      # --- Версия Python (совместимая с grpcio) ---
-      - key: PYTHON_VERSION
-        value: 3.9.18
+envVars:
+  # Environment Variables (обычные)
+  - key: PYTHON_VERSION
+    value: 3.9.18
+  - key: CFLAGS
+    value: -Wno-sign-compare -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-stringop-overflow -fno-wrapv
+  - key: CXXFLAGS
+    value: -Wno-sign-compare -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-stringop-overflow -fno-wrapv
+  - key: TRADING_MODE
+    value: AGGRESSIVE_TEST
+  # ... остальные параметры стратегии
 
-      # --- ОСНОВНОЕ РЕШЕНИЕ: Расширенные флаги компилятора ---
-      # Эти флаги отключают проверку типов предупреждений при сборке protobuf внутри grpcio-tools
-      - key: CFLAGS
-        value: -Wno-sign-compare -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-stringop-overflow -fno-wrapv
-      - key: CXXFLAGS
-        value: -Wno-sign-compare -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-stringop-overflow -fno-wrapv
-
-      # --- Обязательные API-ключи (задайте в настройках Render как Secret Files) ---
-      - key: TINKOFF_API_TOKEN
-        sync: false
-      - key: OPENROUTER_API_TOKEN
-        sync: false
-      - key: NewsAPI
-        sync: false
-      - key: ZENSEPTAPI
-        sync: false
-
-      # --- Параметры стратегии (настраиваются через окружение) ---
-      - key: TRADING_MODE
-        value: AGGRESSIVE_TEST
-      - key: CHECK_INTERVAL_MINUTES
-        value: 15
-      - key: BASE_POSITION_SIZE
-        value: 5.0
-      - key: BASE_STOP_LOSS
-        value: 2.0
-      - key: MIN_CONFIDENCE
-        value: 0.7
-      - key: MIN_IMPACT_SCORE
-        value: 5
-
-    healthCheckPath: /
-    autoDeploy: true
+  # Secret Files (синхронизированные)
+  - key: TINKOFF_API_TOKEN
+    sync: false
+  - key: OPENROUTER_API_TOKEN
+    sync: false
+  - key: NewsAPI
+    sync: false
+  - key: ZENSEPTAPI
+    sync: false
