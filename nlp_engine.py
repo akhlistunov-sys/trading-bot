@@ -5,7 +5,6 @@ import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
 
-# Импорт httpx ПЕРЕМЕЩЕН ВНУТРЬ ФУНКЦИЙ, чтобы избежать ошибок при отсутствии API ключей
 logger = logging.getLogger(__name__)
 
 class NlpEngine:
@@ -91,7 +90,6 @@ class NlpEngine:
         content = news_item.get('content', '') or description
         source = news_item.get('source_name', news_item.get('source', 'Unknown'))
         
-        # ОБНОВЛЕННЫЙ ПРОМПТ с контекстом о рыночных условиях
         if provider == 'gigachat':
             system_prompt = """Ты — финансовый аналитик Сбербанка. Анализируй новости российского рынка акций.
             
@@ -225,12 +223,23 @@ class NlpEngine:
                     # Импортируем httpx ТОЛЬКО ЗДЕСЬ, когда он действительно нужен
                     import httpx
                     
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        response = await client.post(
-                            url=self.providers[provider]['url'],
-                            headers=self.providers[provider]['headers'],
-                            json=prompt_data
-                        )
+                    # ОСНОВНОЕ ИСПРАВЛЕНИЕ: отключаем SSL проверку ТОЛЬКО для GigaChat
+                    if provider == 'gigachat':
+                        # Отключаем проверку SSL для GigaChat из-за проблем с сертификатом
+                        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                            response = await client.post(
+                                url=self.providers[provider]['url'],
+                                headers=self.providers[provider]['headers'],
+                                json=prompt_data
+                            )
+                    else:
+                        # Для других провайдеров оставляем стандартную проверку SSL
+                        async with httpx.AsyncClient(timeout=30.0) as client:
+                            response = await client.post(
+                                url=self.providers[provider]['url'],
+                                headers=self.providers[provider]['headers'],
+                                json=prompt_data
+                            )
                     
                     logger.info(f"   📥 Ответ {provider}: статус {response.status_code}")
                     
