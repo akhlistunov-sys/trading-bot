@@ -3,12 +3,10 @@ import os
 from typing import Dict, Optional, List  # Добавьте этот импорт
 
 try:
-    from tinkoff.invest import Client, RequestError
-    from tinkoff.invest.constants import INVEST_GRPC_API_SANDBOX
+    from tinkoff.invest import Client  # ← Импорт из tinkoff, не tinkoff-investments
     TINKOFF_AVAILABLE = True
 except ImportError:
     TINKOFF_AVAILABLE = False
-    logging.warning("⚠️ Tinkoff API не доступен")
 
 logger = logging.getLogger(__name__)
 
