@@ -1,9 +1,6 @@
 flask==2.3.3
 schedule==1.2.0
+tinkoff-investments
 requests==2.31.0
 python-dotenv==1.0.0
 httpx==0.27.0
-aiohttp==3.9.3
-grpcio==1.60.0  # Старая, но легче
-protobuf==4.25.3
-tinkoff-investments
