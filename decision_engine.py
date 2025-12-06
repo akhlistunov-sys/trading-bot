@@ -9,8 +9,11 @@ class DecisionEngine:
     """Движок принятия торговых решений на основе анализа новостей"""
     
     def __init__(self):
-        # Загружаем параметры из переменных окружения
-        self._load_parameters()
+        # Параметры стратегии ЗАГРУЖАЕМ из переменных окружения
+        self.base_position_size = float(os.getenv("BASE_POSITION_SIZE", "5.0"))
+        self.base_stop_loss = float(os.getenv("BASE_STOP_LOSS", "2.0"))
+        self.min_confidence = float(os.getenv("MIN_CONFIDENCE", "0.7"))
+        self.min_impact_score = int(os.getenv("MIN_IMPACT_SCORE", "5"))
         
         # Множители для разных типов событий
         self.event_multipliers = {
@@ -41,14 +44,8 @@ class DecisionEngine:
         }
         
         logger.info("🎯 Decision Engine инициализирован")
-        logger.info(f"📊 Базовые параметры: Size={self.base_position_size}%, SL={self.base_stop_loss}%, MinConf={self.min_confidence}")
-    
-    def _load_parameters(self):
-        """Загрузка параметров из переменных окружения"""
-        self.base_position_size = float(os.getenv("BASE_POSITION_SIZE", "5.0"))
-        self.base_stop_loss = float(os.getenv("BASE_STOP_LOSS", "2.0"))
-        self.min_confidence = float(os.getenv("MIN_CONFIDENCE", "0.7"))
-        self.min_impact_score = int(os.getenv("MIN_IMPACT_SCORE", "5"))
+        logger.info(f"📊 Параметры из окружения: Size={self.base_position_size}%, SL={self.base_stop_loss}%")
+        logger.info(f"📊 Минимальные пороги: Confidence={self.min_confidence}, Impact={self.min_impact_score}")
     
     def calculate_position_size(self, analysis: Dict) -> float:
         """Расчет размера позиции по формуле: 5% * (confidence/80) * (impact_score/7)"""
@@ -95,7 +92,7 @@ class DecisionEngine:
         return round(stop_loss * 2.0, 2)
     
     def determine_trade_action(self, analysis: Dict) -> str:
-        """Определение действия (BUY/SELL) на основе тональности"""
+        """Определение действия (BUY/SELL/HOLD) на основе тональности"""
         
         sentiment = analysis.get('sentiment', 'neutral')
         event_type = analysis.get('event_type', '')
