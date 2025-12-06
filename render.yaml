@@ -6,21 +6,18 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
     envVars:
-      # Версия Python (убедитесь, что файл runtime.txt удален)
       - key: PYTHON_VERSION
-        value: 3.11.8
-      # API Keys (Secret)
+        value: 3.9.18
+      # --- API Keys (Secret) ---
       - key: TINKOFF_API_TOKEN
         sync: false
       - key: OPENROUTER_API_TOKEN
-        sync: false
-      - key: GIGACHATAPI
         sync: false
       - key: NewsAPI
         sync: false
       - key: ZENSEPTAPI
         sync: false
-      # Настройки Decision Engine (можно менять без переписывания кода)
+      # --- Стратегия и торговые параметры ---
       - key: TRADING_MODE
         value: AGGRESSIVE_TEST
       - key: CHECK_INTERVAL_MINUTES
