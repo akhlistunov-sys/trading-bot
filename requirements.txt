@@ -1,10 +1,9 @@
-pip<25.3
 flask==2.3.3
 schedule==1.2.0
 tinkoff-api>=1.19
 requests==2.31.0
 python-dotenv==1.0.0
 httpx==0.27.0
-grpcio==1.62.1 ; sys_platform != 'linux' or platform_machine != 'aarch64'
-grpcio-tools==1.62.1 ; sys_platform != 'linux' or platform_machine != 'aarch64'
+grpcio>=1.62.1
+grpcio-tools>=1.62.1
 protobuf==4.25.3
