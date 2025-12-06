@@ -6,9 +6,17 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
     envVars:
+      # --- Версия Python ---
       - key: PYTHON_VERSION
         value: 3.9.18
-      # --- API Keys (Secret) ---
+
+      # --- Ключевые флаги компилятора для обхода ошибки ---
+      - key: CFLAGS
+        value: -Wno-sign-compare -fno-wrapv
+      - key: CXXFLAGS
+        value: -Wno-sign-compare -fno-wrapv
+
+      # --- Обязательные API-ключи (укажите в настройках Render) ---
       - key: TINKOFF_API_TOKEN
         sync: false
       - key: OPENROUTER_API_TOKEN
@@ -17,7 +25,8 @@ services:
         sync: false
       - key: ZENSEPTAPI
         sync: false
-      # --- Стратегия и торговые параметры ---
+
+      # --- Параметры стратегии (можно менять для настройки) ---
       - key: TRADING_MODE
         value: AGGRESSIVE_TEST
       - key: CHECK_INTERVAL_MINUTES
@@ -30,5 +39,6 @@ services:
         value: 0.7
       - key: MIN_IMPACT_SCORE
         value: 5
+
     healthCheckPath: /
     autoDeploy: true
