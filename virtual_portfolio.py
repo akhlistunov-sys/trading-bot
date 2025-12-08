@@ -1,3 +1,4 @@
+# virtual_portfolio.py - ПОЛНЫЙ ФАЙЛ С ОБНОВЛЕНИЯМИ
 import datetime
 import logging
 from typing import Dict, List
@@ -21,7 +22,7 @@ class VirtualPortfolioPro:
         logger.info(f"💰 Виртуальный портфель создан: {initial_capital:.2f} руб.")
     
     def check_exit_conditions(self, current_prices: Dict) -> List[Dict]:
-        """Проверка условий выхода из позиций (тейк-профит, стоп-лосс)"""
+        """Проверка условий выхода из позиций (тейк-профит, стоп-лосс, трейлинг)"""
         
         exit_signals = []
         
@@ -35,22 +36,42 @@ class VirtualPortfolioPro:
                 total_profit = profit_per_share * size
                 profit_percent = (profit_per_share / avg_price) * 100
                 
+                # Получаем параметры выхода из позиции
+                stop_loss = pos_info.get('stop_loss')
+                take_profit = pos_info.get('take_profit')
+                trailing_start = pos_info.get('trailing_start', 2.0)
+                trailing_step = pos_info.get('trailing_step', 0.7)
+                
+                # Проверка трейлинг-стопа
+                if 'trailing_stop' in pos_info and current_price >= pos_info['trailing_stop']:
+                    # Обновляем трейлинг-стоп
+                    new_trailing_stop = current_price * (1 - trailing_step / 100)
+                    if new_trailing_stop > pos_info['trailing_stop']:
+                        self.positions[ticker]['trailing_stop'] = new_trailing_stop
+                
+                # Если прибыль достигла trailing_start, активируем трейлинг-стоп
+                elif profit_percent >= trailing_start and 'trailing_stop' not in pos_info:
+                    trailing_stop = current_price * (1 - trailing_step / 100)
+                    self.positions[ticker]['trailing_stop'] = trailing_stop
+                    logger.info(f"📈 Активирован трейлинг-стоп для {ticker}: {trailing_stop:.2f}")
+                
                 # Проверка тейк-профита
-                if 'take_profit' in pos_info and current_price >= pos_info['take_profit']:
+                if take_profit and current_price >= take_profit:
                     exit_signals.append({
                         'action': 'SELL',
                         'ticker': ticker,
                         'price': current_price,
                         'size': size,
                         'strategy': 'Take Profit',
-                        'reason': f"✅ ТЕЙК-ПРОФИТ {pos_info.get('take_profit_percent', 2.5)}% достигнут",
+                        'reason': f"✅ ТЕЙК-ПРОФИТ {pos_info.get('take_profit_percent', 3.0)}% достигнут",
                         'profit': total_profit,
                         'profit_percent': profit_percent,
-                        'position_type': 'full_exit'
+                        'position_type': 'full_exit',
+                        'signal_source': 'exit_condition'
                     })
                 
                 # Проверка стоп-лосса
-                elif 'stop_loss' in pos_info and current_price <= pos_info['stop_loss']:
+                elif stop_loss and current_price <= stop_loss:
                     exit_signals.append({
                         'action': 'SELL',
                         'ticker': ticker,
@@ -60,14 +81,30 @@ class VirtualPortfolioPro:
                         'reason': f"🚨 СТОП-ЛОСС {pos_info.get('stop_loss_percent', 1.5)}% сработал",
                         'profit': total_profit,
                         'profit_percent': profit_percent,
-                        'position_type': 'full_exit'
+                        'position_type': 'full_exit',
+                        'signal_source': 'exit_condition'
                     })
                 
-                # Частичный выход при хорошей прибыли (опционально)
-                elif profit_percent >= 5.0 and 'ai_generated' in pos_info and pos_info['ai_generated']:
-                    # Продаем половину позиции для фиксации прибыли
-                    exit_size = int(size * 0.5)
-                    if exit_size > 0:
+                # Проверка трейлинг-стопа
+                elif 'trailing_stop' in pos_info and current_price <= pos_info['trailing_stop']:
+                    exit_signals.append({
+                        'action': 'SELL',
+                        'ticker': ticker,
+                        'price': current_price,
+                        'size': size,
+                        'strategy': 'Trailing Stop',
+                        'reason': f"📉 ТРЕЙЛИНГ-СТОП сработал на {profit_percent:.1f}% прибыли",
+                        'profit': total_profit,
+                        'profit_percent': profit_percent,
+                        'position_type': 'full_exit',
+                        'signal_source': 'exit_condition'
+                    })
+                
+                # Частичный выход при хорошей прибыли
+                elif profit_percent >= 5.0 and size >= 2:
+                    # Продаём 1/3 позиции для фиксации прибыли
+                    exit_size = int(size * 0.33)
+                    if exit_size >= 1:
                         exit_signals.append({
                             'action': 'SELL',
                             'ticker': ticker,
@@ -75,19 +112,20 @@ class VirtualPortfolioPro:
                             'size': exit_size,
                             'strategy': 'Partial Profit Taking',
                             'reason': f"⚡ Частичный выход при {profit_percent:.1f}% прибыли",
-                            'profit': total_profit * 0.5,
+                            'profit': total_profit * (exit_size / size),
                             'profit_percent': profit_percent,
-                            'position_type': 'partial_exit'
+                            'position_type': 'partial_exit',
+                            'signal_source': 'profit_taking'
                         })
         
         return exit_signals
     
     def execute_trade(self, signal: Dict, current_price: float) -> Dict:
-        """Исполнение виртуальной сделки"""
+        """Исполнение виртуальной сделки с учётом сигналов от RiskManager"""
         
         ticker = signal['ticker']
         action = signal['action']
-        size = signal.get('size', 1)
+        size = signal.get('position_size', 1)
         
         # Для частичного выхода корректируем размер
         if signal.get('position_type') == 'partial_exit' and ticker in self.positions:
@@ -108,12 +146,17 @@ class VirtualPortfolioPro:
             'status': 'PENDING',
             'profit': 0,
             'reason': signal.get('reason', ''),
-            'ai_generated': signal.get('ai_generated', False),
+            'ai_generated': signal.get('ai_provider') not in ['simple', 'enhanced', 'enhanced_fallback'],
+            'ai_provider': signal.get('ai_provider', 'simple'),
             'confidence': signal.get('confidence', 0.5),
+            'event_type': signal.get('event_type', 'market_update'),
+            'signal_source': signal.get('signal_source', 'pipeline'),
             'take_profit': signal.get('take_profit'),
             'stop_loss': signal.get('stop_loss'),
-            'take_profit_percent': signal.get('take_profit_percent', 2.5),
-            'stop_loss_percent': signal.get('stop_loss_percent', 1.5)
+            'take_profit_percent': signal.get('take_profit_percent', 3.0),
+            'stop_loss_percent': signal.get('stop_loss_percent', 1.5),
+            'trailing_start': signal.get('trailing_start', 2.0),
+            'trailing_step': signal.get('trailing_step', 0.7)
         }
         
         try:
@@ -132,34 +175,44 @@ class VirtualPortfolioPro:
                         self.positions[ticker] = {
                             'size': total_size,
                             'avg_price': new_avg_price,
-                            'take_profit': signal.get('take_profit', current_price * 1.025),
+                            'take_profit': signal.get('take_profit', current_price * 1.03),
                             'stop_loss': signal.get('stop_loss', current_price * 0.985),
-                            'take_profit_percent': signal.get('take_profit_percent', 2.5),
+                            'take_profit_percent': signal.get('take_profit_percent', 3.0),
                             'stop_loss_percent': signal.get('stop_loss_percent', 1.5),
+                            'trailing_start': signal.get('trailing_start', 2.0),
+                            'trailing_step': signal.get('trailing_step', 0.7),
                             'entry_time': timestamp.isoformat(),
-                            'ai_generated': signal.get('ai_generated', False)
+                            'last_update': timestamp.isoformat(),
+                            'ai_provider': signal.get('ai_provider', 'unknown'),
+                            'signal_source': signal.get('signal_source', 'pipeline')
                         }
                     else:
                         # Новая позиция
                         self.positions[ticker] = {
                             'size': size,
                             'avg_price': current_price,
-                            'take_profit': signal.get('take_profit', current_price * 1.025),
+                            'take_profit': signal.get('take_profit', current_price * 1.03),
                             'stop_loss': signal.get('stop_loss', current_price * 0.985),
-                            'take_profit_percent': signal.get('take_profit_percent', 2.5),
+                            'take_profit_percent': signal.get('take_profit_percent', 3.0),
                             'stop_loss_percent': signal.get('stop_loss_percent', 1.5),
+                            'trailing_start': signal.get('trailing_start', 2.0),
+                            'trailing_step': signal.get('trailing_step', 0.7),
                             'entry_time': timestamp.isoformat(),
-                            'ai_generated': signal.get('ai_generated', False)
+                            'last_update': timestamp.isoformat(),
+                            'ai_provider': signal.get('ai_provider', 'unknown'),
+                            'signal_source': signal.get('signal_source', 'pipeline')
                         }
                     
                     trade_result['status'] = "EXECUTED"
                     trade_result['message'] = f"Куплено {size} {ticker}"
                     
                     logger.info(f"🟢 ВИРТУАЛЬНАЯ ПОКУПКА: {size} {ticker} по {current_price:.2f}")
+                    logger.info(f"   💰 Стоимость: {trade_cost:.0f} руб. | Остаток: {self.cash:.0f} руб.")
                     
                 else:
                     trade_result['status'] = "INSUFFICIENT_FUNDS"
                     trade_result['message'] = f"Недостаточно средств: {trade_cost:.2f} > {self.cash:.2f}"
+                    logger.warning(f"❌ Недостаточно средств для покупки {ticker}")
                     
             else:  # SELL
                 if ticker in self.positions and self.positions[ticker]['size'] >= size:
@@ -191,6 +244,7 @@ class VirtualPortfolioPro:
                     else:
                         # Частичный выход
                         position['size'] -= size
+                        position['last_update'] = timestamp.isoformat()
                         trade_result['message'] = f"Продано {size} {ticker}. Осталось: {position['size']}."
                     
                     trade_result['status'] = "EXECUTED"
@@ -199,10 +253,12 @@ class VirtualPortfolioPro:
                     profit_color = "🟢" if profit > 0 else "🔴"
                     logger.info(f"{profit_color} ВИРТУАЛЬНАЯ ПРОДАЖА: {size} {ticker} по {current_price:.2f}")
                     logger.info(f"   📊 Прибыль: {profit:+.2f} руб. ({profit_percent:+.1f}%)")
+                    logger.info(f"   💰 Остаток: {self.cash:.0f} руб.")
                     
                 else:
                     trade_result['status'] = "NO_POSITION"
                     trade_result['message'] = f"Нет позиции {ticker} для продажи"
+                    logger.warning(f"❌ Нет позиции {ticker} для продажи")
         
         except Exception as e:
             trade_result['status'] = "ERROR"
@@ -243,6 +299,18 @@ class VirtualPortfolioPro:
         win_rate = (self.winning_trades / self.total_trades * 100) if self.total_trades > 0 else 0
         avg_profit = self.total_profit / self.total_trades if self.total_trades > 0 else 0
         
+        # Анализ позиций
+        positions_analysis = []
+        for ticker, pos in self.positions.items():
+            positions_analysis.append({
+                'ticker': ticker,
+                'size': pos['size'],
+                'avg_price': pos['avg_price'],
+                'entry_time': pos.get('entry_time'),
+                'ai_provider': pos.get('ai_provider', 'unknown'),
+                'signal_source': pos.get('signal_source', 'unknown')
+            })
+        
         return {
             'total_trades': self.total_trades,
             'winning_trades': self.winning_trades,
@@ -252,5 +320,8 @@ class VirtualPortfolioPro:
             'current_positions': len(self.positions),
             'cash': round(self.cash, 2),
             'max_drawdown': round(self.max_drawdown, 2),
-            'positions': self.positions.copy()
+            'peak_value': round(self.peak_value, 2),
+            'current_value': round(self.get_total_value({}), 2),
+            'positions': positions_analysis,
+            'portfolio_return': round(((self.get_total_value({}) - self.initial_capital) / self.initial_capital * 100), 2)
         }
