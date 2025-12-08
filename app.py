@@ -10,14 +10,12 @@ import json
 from typing import Dict, List
 
 # ===== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: принудительная загрузка переменных окружения =====
-# Это ДОЛЖНО быть ДО импорта наших модулей, чтобы переменные успели загрузиться
 from dotenv import load_dotenv
 
 # Принудительно загружаем переменные окружения из Render Dashboard
-# override=True гарантирует, что переменные из Dashboard перезапишут любые другие
 load_dotenv(override=True)
 
-# Логируем ЗАГРУЖЕННЫЕ значения для отладки (видны в Runtime Logs)
+# Логируем ЗАГРУЖЕННЫЕ значения для отладки
 loaded_confidence = os.getenv("MIN_CONFIDENCE", "NOT_FOUND")
 loaded_impact = os.getenv("MIN_IMPACT_SCORE", "NOT_FOUND")
 loaded_position = os.getenv("BASE_POSITION_SIZE", "NOT_FOUND")
@@ -31,7 +29,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Логируем факт загрузки переменных (это будет видно ПЕРВЫМ в логах)
+# Логируем факт загрузки переменных
 logger.info("=" * 60)
 logger.info("🔧 ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ЗАГРУЖЕНЫ:")
 logger.info(f"   • MIN_CONFIDENCE: {loaded_confidence}")
@@ -41,7 +39,7 @@ logger.info(f"   • BASE_STOP_LOSS: {loaded_stop}")
 logger.info("=" * 60)
 # ===== КОНЕЦ ИСПРАВЛЕНИЯ =====
 
-# ТЕПЕРЬ импортируем наши модули (переменные уже загружены)
+# ТЕПЕРЬ импортируем наши модули
 from news_fetcher import NewsFetcher
 from nlp_engine import NlpEngine
 from decision_engine import DecisionEngine
@@ -65,17 +63,15 @@ last_signals = []
 system_stats = {}
 start_time = datetime.datetime.now()
 
-# Инициализация модулей (теперь decision_engine получит правильные переменные)
+# Инициализация модулей
 news_fetcher = NewsFetcher()
 nlp_engine = NlpEngine()
-decision_engine = DecisionEngine()  # ЭТОТ ВЫЗОВ теперь получит MIN_CONFIDENCE=0.5 и MIN_IMPACT_SCORE=3
+decision_engine = DecisionEngine()
 tinkoff_executor = TinkoffExecutor()
 virtual_portfolio = VirtualPortfolioPro(initial_capital=100000)
 simple_analyzer = SimpleAnalyzer()
 
-# ... остальной код БЕЗ ИЗМЕНЕНИЙ (HTML_TEMPLATE и все функции остаются как были) ...
-
-# HTML шаблон для светлого интерфейса
+# HTML шаблон для светлого интерфейса (остается без изменений)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -460,6 +456,9 @@ HTML_TEMPLATE = """
                 <a href="/env" class="btn btn-danger">
                     <span class="icon">⚙️</span> Переменные окружения
                 </a>
+                <a href="/debug_auth" class="btn btn-warning">
+                    <span class="icon">🔑</span> Тест авторизации
+                </a>
             </div>
         </div>
         
@@ -505,22 +504,18 @@ async def trading_session_async(force_mode=False):
         
         logger.info(f"✅ Получено {len(all_news)} новостей")
         
-        # 2. NLP-анализ новостей с ПРЕДФИЛЬТРАЦИЕЙ
-        logger.info("🧠 Гибридный анализ новостей с предфильтрацией...")
+        # 2. NLP-анализ новостей
+        logger.info("🧠 Гибридный анализ новостей...")
         analyzed_news = []
         
-        for news_item in all_news[:8]:  # Ограничиваем для скорости
-            # БЫСТРАЯ ПРЕДФИЛЬТРАЦИЯ: стоит ли анализировать эту новость?
-            if not simple_analyzer.should_analyze_further(news_item):
-                logger.debug(f"⏩ Пропущена на предфильтрации: {news_item.get('title', '')[:50]}...")
-                continue
-            
-            # Гибридный анализ (GigaChat + OpenRouter)
+        # ВРЕМЕННО: Упрощаем для тестирования - анализируем больше новостей
+        for news_item in all_news[:10]:  # Увеличили с 8 до 10
+            # Сначала пробуем ИИ-анализ
             analysis = await nlp_engine.analyze_news(news_item)
             
             if not analysis:
-                # Если гибридный анализ не сработал, используем простой анализатор
-                logger.info("🔄 Использую простой анализатор как fallback")
+                # Если ИИ не сработал, используем простой анализатор
+                logger.info("🔄 Использую SimpleAnalyzer как fallback")
                 simple_analysis = simple_analyzer.analyze_news(news_item)
                 if simple_analysis:
                     # Добавляем метаданные
@@ -537,7 +532,7 @@ async def trading_session_async(force_mode=False):
             if analysis:
                 analyzed_news.append(analysis)
         
-        logger.info(f"✅ Проанализировано {len(analyzed_news)} новостей (после предфильтрации)")
+        logger.info(f"✅ Проанализировано {len(analyzed_news)} новостей")
         
         # 3. Принятие решений
         logger.info("🎯 Формирование торговых решений...")
@@ -660,6 +655,221 @@ def run_scheduler():
     while True:
         schedule.run_pending()
         time.sleep(1)
+
+# ==================== НОВЫЕ ТЕСТОВЫЕ ЭНДПОИНТЫ ====================
+
+@app.route('/debug_auth')
+async def debug_auth():
+    """Отладочная страница для проверки авторизации провайдеров"""
+    
+    env_vars = {
+        'GIGACHAT_CLIENT_ID': os.getenv('GIGACHAT_CLIENT_ID', 'NOT SET'),
+        'GIGACHAT_CLIENT_SECRET': os.getenv('GIGACHAT_CLIENT_SECRET', 'NOT SET'),
+        'GIGACHAT_SCOPE': os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS'),
+        'OPENROUTER_API_TOKEN': os.getenv('OPENROUTER_API_TOKEN', 'NOT SET')[:20] + '...' if os.getenv('OPENROUTER_API_TOKEN') else 'NOT SET'
+    }
+    
+    # Проверяем GigaChat
+    gigachat_status = {
+        'configured': bool(os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET')),
+        'status': '❌ Не настроен'
+    }
+    
+    if gigachat_status['configured']:
+        try:
+            from nlp_engine import GigaChatAuth
+            test_auth = GigaChatAuth(
+                client_id=os.getenv('GIGACHAT_CLIENT_ID'),
+                client_secret=os.getenv('GIGACHAT_CLIENT_SECRET'),
+                scope=os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
+            )
+            
+            token = await test_auth.get_access_token()
+            gigachat_status['status'] = '✅ Настроен' if token else '❌ Ошибка авторизации'
+            gigachat_status['token_received'] = bool(token)
+            gigachat_status['token_preview'] = f"{token[:20]}..." if token else None
+            
+        except Exception as e:
+            gigachat_status['status'] = f'❌ Ошибка: {str(e)[:50]}'
+    
+    # Проверяем OpenRouter
+    openrouter_status = {
+        'configured': bool(os.getenv('OPENROUTER_API_TOKEN')),
+        'status': '✅ Настроен' if os.getenv('OPENROUTER_API_TOKEN') else '❌ Не настроен'
+    }
+    
+    return jsonify({
+        'environment_variables': env_vars,
+        'gigachat_status': gigachat_status,
+        'openrouter_status': openrouter_status,
+        'timestamp': datetime.datetime.now().isoformat()
+    })
+
+@app.route('/test_gigachat_fixed')
+async def test_gigachat_fixed():
+    """Тест исправленного GigaChat API"""
+    
+    if not os.getenv('GIGACHAT_CLIENT_ID') or not os.getenv('GIGACHAT_CLIENT_SECRET'):
+        return jsonify({
+            "error": "Требуются GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET",
+            "status": "configuration_error"
+        })
+    
+    try:
+        # Импортируем нужные модули
+        import httpx
+        from nlp_engine import GigaChatAuth
+        
+        # Создаем тестовый запрос
+        test_prompt = {
+            "model": "GigaChat",
+            "messages": [
+                {
+                    "role": "system", 
+                    "content": "Ты помощник. Отвечай ТОЛЬКО JSON: {'test': 'success'}"
+                },
+                {
+                    "role": "user", 
+                    "content": "Это тест. Верни {'test': 'success'}"
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 50
+        }
+        
+        # Создаем временный auth объект
+        test_auth = GigaChatAuth(
+            client_id=os.getenv('GIGACHAT_CLIENT_ID'),
+            client_secret=os.getenv('GIGACHAT_CLIENT_SECRET'),
+            scope=os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
+        )
+        
+        # Получаем токен
+        token = await test_auth.get_access_token()
+        if not token:
+            return jsonify({
+                "status": "token_error",
+                "message": "Не удалось получить токен GigaChat"
+            })
+        
+        # Делаем запрос
+        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            response = await client.post(url, headers=headers, json=test_prompt)
+            
+            result = {
+                "status": "success" if response.status_code == 200 else "error",
+                "response_code": response.status_code,
+                "token_preview": f"{token[:20]}..." if token else "No token",
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    result["response"] = data.get("choices", [{}])[0].get("message", {}).get("content", "Пустой ответ")
+                except:
+                    result["response"] = "Не удалось распарсить JSON"
+            else:
+                result["error"] = response.text[:200]
+            
+            return jsonify(result)
+            
+    except Exception as e:
+        return jsonify({
+            "status": "exception",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+
+@app.route('/test_openrouter_fixed')
+async def test_openrouter_fixed():
+    """Тест исправленного OpenRouter API"""
+    
+    if not os.getenv('OPENROUTER_API_TOKEN'):
+        return jsonify({"error": "OPENROUTER_API_TOKEN не настроен"})
+    
+    try:
+        import httpx
+        
+        # ОЧЕНЬ СТРОГИЙ промпт для теста
+        test_prompt = {
+            "model": "google/gemini-2.0-flash-exp:free",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You MUST output ONLY valid JSON. No other text. Example: {'test': 'openrouter_works'}"
+                },
+                {
+                    "role": "user", 
+                    "content": "Test. Return {'test': 'openrouter_works'}"
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 50,
+            "response_format": {"type": "json_object"}
+        }
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {os.getenv('OPENROUTER_API_TOKEN')}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com"
+                },
+                json=test_prompt
+            )
+        
+        # Проверяем ответ
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                
+                # Пробуем распарсить как JSON
+                json.loads(content)
+                
+                return jsonify({
+                    "status": "success",
+                    "provider": "openrouter",
+                    "response_code": response.status_code,
+                    "response": "✅ OpenRouter возвращает валидный JSON",
+                    "content_preview": content[:100],
+                    "timestamp": datetime.datetime.now().isoformat()
+                })
+            except json.JSONDecodeError:
+                return jsonify({
+                    "status": "json_error",
+                    "provider": "openrouter",
+                    "response_code": response.status_code,
+                    "response": "❌ OpenRouter НЕ возвращает JSON",
+                    "content_preview": content[:200],
+                    "timestamp": datetime.datetime.now().isoformat()
+                })
+        else:
+            return jsonify({
+                "status": "error",
+                "provider": "openrouter",
+                "response_code": response.status_code,
+                "error": response.text[:200],
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "status": "exception",
+            "provider": "openrouter",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+
+# ==================== СУЩЕСТВУЮЩИЕ ЭНДПОИНТЫ ====================
 
 @app.route('/')
 def home():
@@ -809,7 +1019,7 @@ def status():
         "check_interval": os.getenv("CHECK_INTERVAL_MINUTES", 15),
         "ai_provider": nlp_engine.get_current_provider() if 'nlp_engine' in globals() else "Unknown",
         "providers_configured": {
-            "gigachat": bool(os.getenv("GIGACHATAPI")),
+            "gigachat": bool(os.getenv("GIGACHAT_CLIENT_ID") and os.getenv("GIGACHAT_CLIENT_SECRET")),
             "openrouter": bool(os.getenv("OPENROUTER_API_TOKEN"))
         }
     })
@@ -904,9 +1114,10 @@ def test_providers_page():
     
     providers_info = {
         'gigachat': {
-            'configured': bool(os.getenv('GIGACHATAPI')),
-            'status': '✅ Настроен' if os.getenv('GIGACHATAPI') else '❌ Не настроен',
-            'token_preview': os.getenv('GIGACHATAPI', '')[:10] + '...' if os.getenv('GIGACHATAPI') else 'Нет'
+            'configured': bool(os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET')),
+            'status': '✅ Настроен' if (os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET')) else '❌ Не настроен',
+            'client_id_preview': os.getenv('GIGACHAT_CLIENT_ID', '')[:10] + '...' if os.getenv('GIGACHAT_CLIENT_ID') else 'Нет',
+            'client_secret_preview': '****' + os.getenv('GIGACHAT_CLIENT_SECRET', '')[-4:] if os.getenv('GIGACHAT_CLIENT_SECRET') else 'Нет'
         },
         'openrouter': {
             'configured': bool(os.getenv('OPENROUTER_API_TOKEN')),
@@ -936,12 +1147,13 @@ def test_providers_page():
                 <p>Проверка работы GigaChat и OpenRouter API</p>
                 
                 <div class="provider">
-                    <h3>🏦 GigaChat API (Сбербанк)</h3>
+                    <h3>🏦 GigaChat API (Сбербанк) - OAuth 2.0</h3>
                     <p><strong>Статус:</strong> {providers_info['gigachat']['status']}</p>
-                    <p><strong>Токен:</strong> {providers_info['gigachat']['token_preview']}</p>
+                    <p><strong>Client ID:</strong> {providers_info['gigachat']['client_id_preview']}</p>
+                    <p><strong>Client Secret:</strong> {providers_info['gigachat']['client_secret_preview']}</p>
                     <p><strong>Scope:</strong> GIGACHAT_API_PERS</p>
                     <p><strong>Endpoint:</strong> https://gigachat.devices.sberbank.ru/api/v1/chat/completions</p>
-                    <a href="/test_gigachat" class="btn btn-test">🧪 Тест GigaChat</a>
+                    <a href="/test_gigachat_fixed" class="btn btn-test">🧪 Тест GigaChat (исправленный)</a>
                 </div>
                 
                 <div class="provider">
@@ -950,144 +1162,18 @@ def test_providers_page():
                     <p><strong>Токен:</strong> {providers_info['openrouter']['token_preview']}</p>
                     <p><strong>Модели:</strong> Gemini, Mistral, DeepSeek</p>
                     <p><strong>Endpoint:</strong> https://openrouter.ai/api/v1/chat/completions</p>
-                    <a href="/test_openrouter" class="btn btn-test">🧪 Тест OpenRouter</a>
+                    <a href="/test_openrouter_fixed" class="btn btn-test">🧪 Тест OpenRouter (исправленный)</a>
                 </div>
                 
                 <div style="margin-top: 30px;">
                     <a href="/" class="btn btn-back">← На главную</a>
                     <a href="/analyze" class="btn btn-test">📰 Тест полного анализа</a>
+                    <a href="/debug_auth" class="btn btn-test">🔑 Проверка авторизации</a>
                 </div>
             </div>
         </body>
     </html>
     """
-
-@app.route('/test_gigachat')
-async def test_gigachat():
-    """Тестирование GigaChat API"""
-    
-    if not os.getenv('GIGACHATAPI'):
-        return jsonify({"error": "GIGACHATAPI не настроен"})
-    
-    try:
-        # Импортируем httpx ТОЛЬКО ЗДЕСЬ
-        import httpx
-        
-        test_prompt = {
-            "model": "GigaChat",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "Ты — помощник. Отвечай кратко."
-                },
-                {
-                    "role": "user", 
-                    "content": "Привет! Это тест API. Ответь '✅ GigaChat работает'"
-                }
-            ],
-            "temperature": 0.1,
-            "max_tokens": 50
-        }
-        
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                url="https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {os.getenv('GIGACHATAPI')}",
-                    "Content-Type": "application/json"
-                },
-                json=test_prompt
-            )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return jsonify({
-                "status": "success",
-                "provider": "gigachat",
-                "response_code": response.status_code,
-                "response": data.get("choices", [{}])[0].get("message", {}).get("content", "Пустой ответ"),
-                "timestamp": datetime.datetime.now().isoformat()
-            })
-        else:
-            return jsonify({
-                "status": "error",
-                "provider": "gigachat",
-                "response_code": response.status_code,
-                "error": response.text[:200],
-                "timestamp": datetime.datetime.now().isoformat()
-            })
-            
-    except Exception as e:
-        return jsonify({
-            "status": "exception",
-            "provider": "gigachat",
-            "error": str(e),
-            "timestamp": datetime.datetime.now().isoformat()
-        })
-
-@app.route('/test_openrouter')
-async def test_openrouter():
-    """Тестирование OpenRouter API"""
-    
-    if not os.getenv('OPENROUTER_API_TOKEN'):
-        return jsonify({"error": "OPENROUTER_API_TOKEN не настроен"})
-    
-    try:
-        # Импортируем httpx ТОЛЬКО ЗДЕСЬ
-        import httpx
-        
-        test_prompt = {
-            "model": "google/gemini-2.0-flash-exp:free",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant. Respond briefly."
-                },
-                {
-                    "role": "user", 
-                    "content": "Hello! This is an API test. Respond '✅ OpenRouter works'"
-                }
-            ],
-            "temperature": 0.1,
-            "max_tokens": 50
-        }
-        
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {os.getenv('OPENROUTER_API_TOKEN')}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com"
-                },
-                json=test_prompt
-            )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return jsonify({
-                "status": "success",
-                "provider": "openrouter",
-                "response_code": response.status_code,
-                "response": data.get("choices", [{}])[0].get("message", {}).get("content", "Empty response"),
-                "timestamp": datetime.datetime.now().isoformat()
-            })
-        else:
-            return jsonify({
-                "status": "error",
-                "provider": "openrouter",
-                "response_code": response.status_code,
-                "error": response.text[:200],
-                "timestamp": datetime.datetime.now().isoformat()
-            })
-            
-    except Exception as e:
-        return jsonify({
-            "status": "exception",
-            "provider": "openrouter",
-            "error": str(e),
-            "timestamp": datetime.datetime.now().isoformat()
-        })
 
 @app.route('/env')
 def show_env():
@@ -1102,7 +1188,7 @@ def show_env():
                 env_vars[key] = f"{masked} (длина: {len(value)})"
             else:
                 env_vars[key] = "****"
-        elif 'MODE' in key or 'INTERVAL' in key:
+        elif 'MODE' in key or 'INTERVAL' in key or 'CONFIDENCE' in key or 'SCORE' in key or 'SIZE' in key or 'LOSS' in key:
             env_vars[key] = value
     
     return jsonify({
@@ -1110,152 +1196,6 @@ def show_env():
         "total_vars": len(env_vars),
         "timestamp": datetime.datetime.now().isoformat()
     })
-    @app.route('/test_gigachat_fixed')
-async def test_gigachat_fixed():
-    """Тест исправленного GigaChat API"""
-    
-    if not os.getenv('GIGACHAT_CLIENT_ID') or not os.getenv('GIGACHAT_CLIENT_SECRET'):
-        return jsonify({
-            "error": "Требуются GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET",
-            "status": "configuration_error"
-        })
-    
-    try:
-        # Создаем тестовый запрос
-        test_prompt = {
-            "model": "GigaChat",
-            "messages": [
-                {
-                    "role": "system", 
-                    "content": "Ты помощник. Отвечай ТОЛЬКО JSON: {'test': 'success'}"
-                },
-                {
-                    "role": "user", 
-                    "content": "Это тест. Верни {'test': 'success'}"
-                }
-            ],
-            "temperature": 0.1,
-            "max_tokens": 50
-        }
-        
-        # Создаем временный auth объект
-        test_auth = GigaChatAuth(
-            client_id=os.getenv('GIGACHAT_CLIENT_ID'),
-            client_secret=os.getenv('GIGACHAT_CLIENT_SECRET'),
-            scope=os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
-        )
-        
-        # Получаем токен
-        token = await test_auth.get_access_token()
-        if not token:
-            return jsonify({
-                "status": "token_error",
-                "message": "Не удалось получить токен"
-            })
-        
-        # Делаем запрос
-        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
-        headers = {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
-        }
-        
-        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-            response = await client.post(url, headers=headers, json=test_prompt)
-            
-            return jsonify({
-                "status": "success" if response.status_code == 200 else "error",
-                "response_code": response.status_code,
-                "token_preview": f"{token[:20]}...",
-                "response": response.text[:500] if response.status_code != 200 else "API работает",
-                "timestamp": datetime.datetime.now().isoformat()
-            })
-            
-    except Exception as e:
-        return jsonify({
-            "status": "exception",
-            "error": str(e),
-            "timestamp": datetime.datetime.now().isoformat()
-        })
-
-@app.route('/test_openrouter_fixed')
-async def test_openrouter_fixed():
-    """Тест исправленного OpenRouter API"""
-    
-    if not os.getenv('OPENROUTER_API_TOKEN'):
-        return jsonify({"error": "OPENROUTER_API_TOKEN не настроен"})
-    
-    try:
-        # ОЧЕНЬ СТРОГИЙ промпт для теста
-        test_prompt = {
-            "model": "google/gemini-2.0-flash-exp:free",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You MUST output ONLY valid JSON. No other text. Example: {'test': 'openrouter_works'}"
-                },
-                {
-                    "role": "user", 
-                    "content": "Test. Return {'test': 'openrouter_works'}"
-                }
-            ],
-            "temperature": 0.1,
-            "max_tokens": 50
-        }
-        
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {os.getenv('OPENROUTER_API_TOKEN')}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com"
-                },
-                json=test_prompt
-            )
-        
-        # Проверяем ответ
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                
-                # Пробуем распарсить как JSON
-                json.loads(content)
-                
-                return jsonify({
-                    "status": "success",
-                    "provider": "openrouter",
-                    "response_code": response.status_code,
-                    "response": "✅ OpenRouter возвращает валидный JSON",
-                    "content_preview": content[:100],
-                    "timestamp": datetime.datetime.now().isoformat()
-                })
-            except json.JSONDecodeError:
-                return jsonify({
-                    "status": "json_error",
-                    "provider": "openrouter",
-                    "response_code": response.status_code,
-                    "response": "❌ OpenRouter НЕ возвращает JSON",
-                    "content_preview": content[:200],
-                    "timestamp": datetime.datetime.now().isoformat()
-                })
-        else:
-            return jsonify({
-                "status": "error",
-                "provider": "openrouter",
-                "response_code": response.status_code,
-                "error": response.text[:200],
-                "timestamp": datetime.datetime.now().isoformat()
-            })
-            
-    except Exception as e:
-        return jsonify({
-            "status": "exception",
-            "provider": "openrouter",
-            "error": str(e),
-            "timestamp": datetime.datetime.now().isoformat()
-        })
 
 if __name__ == '__main__':
     # Запуск планировщика
@@ -1268,9 +1208,9 @@ if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' ЗАПУЩЕН!")
     logger.info("🎯 Архитектура: Гибридный NLP-анализ с предфильтрацией")
-    logger.info("🏦 Основной провайдер: GigaChat API")
-    logger.info("🌍 Резервный провайдер: OpenRouter API")
-    logger.info("🧠 Fallback: SimpleAnalyzer")
+    logger.info(f"🏦 Основной провайдер: GigaChat API {'✅' if os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET') else '❌'}")
+    logger.info(f"🌍 Резервный провайдер: OpenRouter API {'✅' if os.getenv('OPENROUTER_API_TOKEN') else '❌'}")
+    logger.info(f"🧠 Fallback: SimpleAnalyzer ✅")
     logger.info(f"⚡ Режим: {os.getenv('TRADING_MODE', 'AGGRESSIVE_TEST')}")
     logger.info(f"⏰ Проверки: каждые {os.getenv('CHECK_INTERVAL_MINUTES', 15)} минут")
     logger.info(f"📊 Портфель: 100,000 руб. (виртуальный)")
@@ -1283,7 +1223,7 @@ if __name__ == '__main__':
     
     # Логируем конфигурацию провайдеров
     logger.info("🔧 Конфигурация провайдеров:")
-    logger.info(f"   GigaChat: {'✅ Настроен' if os.getenv('GIGACHATAPI') else '❌ Не настроен'}")
+    logger.info(f"   GigaChat: {'✅ Настроен' if (os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET')) else '❌ Не настроен'}")
     logger.info(f"   OpenRouter: {'✅ Настроен' if os.getenv('OPENROUTER_API_TOKEN') else '❌ Не настроен'}")
     
     # Запуск Flask приложения
