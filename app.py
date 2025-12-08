@@ -1224,6 +1224,42 @@ def show_env():
         "timestamp": datetime.datetime.now().isoformat()
     })
 
+@app.route('/debug_prefilter')
+async def debug_prefilter():
+    """Отладка префильтра"""
+    async def test_async():
+        all_news = await news_fetcher.fetch_all_news()
+        
+        debug_results = []
+        for i, news in enumerate(all_news[:5]):
+            is_tradable = news_prefilter.is_tradable(news)
+            
+            # Анализируем почему не проходит
+            title = news.get('title', '')[:100]
+            content = news.get('content', '')[:200] or news.get('description', '')[:200]
+            text = f"{title} {content}".lower()
+            
+            # Проверяем ключевые слова
+            accept_count = sum(1 for kw in news_prefilter.accept_keywords if kw in text)
+            reject_count = sum(1 for kw in news_prefilter.reject_keywords if kw in text)
+            
+            debug_results.append({
+                'index': i,
+                'title': title,
+                'is_tradable': is_tradable,
+                'accept_keywords': accept_count,
+                'reject_keywords': reject_count,
+                'text_preview': text[:150]
+            })
+        
+        return debug_results
+    
+    results = await test_async()
+    return jsonify({
+        "debug": results,
+        "prefilter_stats": news_prefilter.get_filter_stats(all_news[:10])
+    })
+
 if __name__ == '__main__':
     # Запуск планировщика
     schedule_tasks()
