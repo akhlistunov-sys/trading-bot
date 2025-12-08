@@ -2,7 +2,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional  # ← ДОБАВИТЬ Optional
 
 logger = logging.getLogger(__name__)
 
