@@ -15,6 +15,21 @@ class DecisionEngine:
         self.min_confidence = float(os.getenv("MIN_CONFIDENCE", "0.7"))
         self.min_impact_score = int(os.getenv("MIN_IMPACT_SCORE", "5"))
         
+        # ===== КРИТИЧЕСКИЙ ОТЛАДОЧНЫЙ ЛОГ =====
+        logger.info("=" * 50)
+        logger.info("🎯 DEBUG DecisionEngine ПАРАМЕТРЫ ИНИЦИАЛИЗАЦИИ:")
+        logger.info(f"   • min_confidence = {self.min_confidence}")
+        logger.info(f"   • min_impact_score = {self.min_impact_score}")
+        logger.info(f"   • base_position_size = {self.base_position_size}")
+        logger.info(f"   • base_stop_loss = {self.base_stop_loss}")
+        
+        # Проверяем, какие переменные окружения загрузились
+        env_confidence = os.getenv("MIN_CONFIDENCE", "NOT_FOUND")
+        env_impact = os.getenv("MIN_IMPACT_SCORE", "NOT_FOUND")
+        logger.info(f"   • Переменные окружения: MIN_CONFIDENCE={env_confidence}, MIN_IMPACT_SCORE={env_impact}")
+        logger.info("=" * 50)
+        # ======================================
+        
         # Множители для разных типов событий
         self.event_multipliers = {
             'earnings_report': 1.3,
@@ -113,39 +128,49 @@ class DecisionEngine:
         return 'BUY' if analysis.get('confidence', 0) > 0.6 else 'HOLD'
     
     def generate_signals(self, analysis: Dict) -> List[Dict]:
-    """Генерация торговых сигналов на основе анализа"""
-    
-    signals = []
-    
-    # Проверяем минимальные требования
-    confidence = analysis.get('confidence', 0)
-    impact_score = analysis.get('impact_score', 0)
-    relevance_score = analysis.get('relevance_score', 0)
-    tickers = analysis.get('tickers', [])
-    
-    # ОТЛАДОЧНЫЙ ЛОГ - добавьте эту строку
-    logger.info(f"🔍 DecisionEngine проверка: conf={confidence:.2f}, impact={impact_score}, "
-               f"relevance={relevance_score}, tickers={tickers}, "
-               f"min_conf={self.min_confidence}, min_impact={self.min_impact_score}")
-    
-    if (confidence < self.min_confidence or 
-        impact_score < self.min_impact_score or 
-        relevance_score < 20 or 
-        not tickers):
+        """Генерация торговых сигналов на основе анализа"""
         
-        # Детальный лог что именно не прошло
-        failed_checks = []
-        if confidence < self.min_confidence:
-            failed_checks.append(f"conf {confidence:.2f}<{self.min_confidence}")
-        if impact_score < self.min_impact_score: → if False:
-            failed_checks.append(f"impact {impact_score}<{self.min_impact_score}")
-        if relevance_score < 50:
-            failed_checks.append(f"relevance {relevance_score}<50")
-        if not tickers:
-            failed_checks.append("no tickers")
+        signals = []
         
-        logger.info(f"ℹ️ Анализ отброшен: {', '.join(failed_checks)}")
-        return signals
+        # Проверяем минимальные требования
+        confidence = analysis.get('confidence', 0)
+        impact_score = analysis.get('impact_score', 0)
+        relevance_score = analysis.get('relevance_score', 0)
+        tickers = analysis.get('tickers', [])
+        
+        # ===== ДЕТАЛЬНЫЙ ОТЛАДОЧНЫЙ ЛОГ =====
+        logger.info("🔍 DecisionEngine ПРОВЕРКА АНАЛИЗА:")
+        logger.info(f"   • confidence: {confidence:.2f} (требуется >= {self.min_confidence})")
+        logger.info(f"   • impact_score: {impact_score} (требуется >= {self.min_impact_score})")
+        logger.info(f"   • relevance_score: {relevance_score} (требуется >= 50)")
+        logger.info(f"   • tickers: {tickers} (требуется не пустой)")
+        logger.info(f"   • event_type: {analysis.get('event_type', 'unknown')}")
+        logger.info(f"   • sentiment: {analysis.get('sentiment', 'unknown')}")
+        # ====================================
+        
+        # ВРЕМЕННО: упрощённые проверки для тестирования
+        # Было: relevance_score < 50
+        # Стало: relevance_score < 20 (больше анализов пройдут)
+        if (confidence < self.min_confidence or 
+            impact_score < self.min_impact_score or 
+            relevance_score < 20 or  # ВРЕМЕННО УПРОЩЕНО
+            not tickers):
+            
+            # Детальный лог что именно не прошло
+            failed_checks = []
+            if confidence < self.min_confidence:
+                failed_checks.append(f"confidence {confidence:.2f} < {self.min_confidence}")
+            if impact_score < self.min_impact_score:
+                failed_checks.append(f"impact {impact_score} < {self.min_impact_score}")
+            if relevance_score < 20:  # Обновлено
+                failed_checks.append(f"relevance {relevance_score} < 20")
+            if not tickers:
+                failed_checks.append("no tickers")
+            
+            logger.info(f"❌ Анализ ОТБРОШЕН: {', '.join(failed_checks)}")
+            return signals
+        
+        logger.info("✅ Анализ ПРОШЁЛ все фильтры!")
         
         # Для каждого тикера создаем сигнал
         for ticker in tickers[:3]:  # Ограничиваем 3 тикерами
@@ -153,6 +178,7 @@ class DecisionEngine:
             action = self.determine_trade_action(analysis)
             
             if action == 'HOLD':
+                logger.info(f"   ⏸️  Для {ticker}: действие HOLD, пропускаем")
                 continue
             
             # Рассчитываем параметры
@@ -174,7 +200,7 @@ class DecisionEngine:
                 'stop_loss_percent': stop_loss_percent,
                 'take_profit_percent': take_profit_percent,
                 'strategy': 'News NLP Trading',
-                'ai_generated': True,
+                'ai_generated': analysis.get('ai_provider') != 'simple',
                 'news_id': analysis.get('news_id', ''),
                 'news_title': analysis.get('news_title', '')[:100],
                 'timestamp': datetime.now().isoformat()
@@ -182,8 +208,10 @@ class DecisionEngine:
             
             signals.append(signal)
             
-            # Логируем
-            logger.info(f"🎯 Сигнал: {action} {ticker} | Size: {position_size}% | SL: {stop_loss_percent}% | Impact: {impact_score}")
+            # Логируем с деталями
+            logger.info(f"🎯 СИГНАЛ СОЗДАН: {action} {ticker} | "
+                       f"Size: {position_size}% | SL: {stop_loss_percent}% | "
+                       f"TP: {take_profit_percent}% | Impact: {impact_score}")
         
         # Обновляем статистику
         self.stats['total_signals_generated'] += len(signals)
