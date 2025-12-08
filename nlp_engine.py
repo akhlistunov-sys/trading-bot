@@ -1,19 +1,20 @@
+# nlp_engine.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
 import logging
 import json
 import os
 import asyncio
 import httpx
 import time
-import re
 import uuid
+import base64
 from datetime import datetime
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ==================== GIGACHAT OAUTH 2.0 КЛАСС ====================
+# ==================== GIGACHAT OAUTH 2.0 (ИСПРАВЛЕННЫЙ) ====================
 class GigaChatAuth:
-    """Класс для авторизации в GigaChat API через OAuth 2.0"""
+    """Класс для авторизации в GigaChat API через OAuth 2.0 Basic auth"""
     
     def __init__(self, client_id: str, client_secret: str, scope: str = "GIGACHAT_API_PERS"):
         self.client_id = client_id
@@ -23,27 +24,30 @@ class GigaChatAuth:
         self.token_expiry = 0
         
     async def get_access_token(self) -> Optional[str]:
-        """Получение access token через OAuth 2.0"""
+        """Получение access token через OAuth 2.0 Basic auth"""
         if self.access_token and time.time() < self.token_expiry - 60:
             return self.access_token
         
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         
+        # Basic auth: base64(client_id:client_secret)
+        auth_string = f"{self.client_id}:{self.client_secret}"
+        auth_base64 = base64.b64encode(auth_string.encode()).decode()
+        
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
             'RqUID': str(uuid.uuid4()),
+            'Authorization': f'Basic {auth_base64}'
         }
         
         payload = {
-            'scope': self.scope,
-            'grant_type': 'client_credentials',
-            'client_id': self.client_id,
-            'client_secret': self.client_secret
+            'scope': self.scope
+            # НЕ нужно grant_type, client_id, client_secret - они в Basic auth
         }
         
         try:
-            logger.info("🔑 Запрашиваю новый токен GigaChat...")
+            logger.info("🔑 Запрашиваю новый токен GigaChat (Basic auth)...")
             
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 response = await client.post(url, headers=headers, data=payload)
@@ -65,9 +69,9 @@ class GigaChatAuth:
             logger.error(f"❌ Ошибка получения токена GigaChat: {str(e)[:100]}")
             return None
 
-# ==================== ОСНОВНОЙ NLP КЛАСС ====================
+# ==================== ОСНОВНОЙ NLP КЛАСС (С РОТАЦИЕЙ МОДЕЛЕЙ) ====================
 class NlpEngine:
-    """Гибридный ИИ-движок с поддержкой GigaChat и OpenRouter"""
+    """Гибридный ИИ-движок с ротацией моделей OpenRouter"""
     
     def __init__(self):
         logger.info("🔧 Инициализация гибридного NLP-движка...")
@@ -79,9 +83,17 @@ class NlpEngine:
         self.gigachat_auth = None
         if gigachat_client_id and gigachat_client_secret:
             self.gigachat_auth = GigaChatAuth(gigachat_client_id, gigachat_client_secret, gigachat_scope)
-            logger.info(f"🔑 GigaChat OAuth настроен")
+            logger.info(f"🔑 GigaChat OAuth настроен (Basic auth)")
         else:
             logger.warning("⚠️ GigaChat отключен: нет Client ID или Client Secret")
+        
+        # Ротация моделей OpenRouter (бесплатные)
+        self.openrouter_models = [
+            'google/gemini-2.0-flash:free',
+            'mistralai/mistral-7b-instruct:free',
+            'meta-llama/llama-3.2-3b-instruct:free',
+            'huggingfaceh4/zephyr-7b-beta:free'
+        ]
         
         self.providers = {
             'gigachat': {
@@ -94,7 +106,8 @@ class NlpEngine:
                 'url': 'https://openrouter.ai/api/v1/chat/completions',
                 'token': os.getenv('OPENROUTER_API_TOKEN'),
                 'enabled': bool(os.getenv('OPENROUTER_API_TOKEN')),
-                'priority': 2
+                'priority': 2,
+                'models': self.openrouter_models
             }
         }
         
@@ -103,7 +116,6 @@ class NlpEngine:
             key=lambda x: self.providers[x]['priority']
         )
         
-        self.model_indices = {provider: 0 for provider in self.provider_priority}
         self.analysis_cache = {}
         
         self.stats = {
@@ -116,51 +128,68 @@ class NlpEngine:
         
         logger.info(f"🤖 Гибридный NLP-движок инициализирован")
         logger.info(f"📊 Доступные провайдеры: {', '.join(self.provider_priority)}")
+        logger.info(f"🧠 OpenRouter модели: {len(self.openrouter_models)} бесплатных")
     
-    # ==================== ИСПРАВЛЕННЫЕ МЕТОДЫ ====================
+    # ==================== ОСНОВНЫЕ МЕТОДЫ ====================
     
-    def _create_prompt_for_provider(self, news_item: Dict, provider: str) -> Dict:
-        """Создание промпта в зависимости от провайдера (ИСПРАВЛЕНО)"""
+    def _create_prompt_for_provider(self, news_item: Dict, provider: str, model: str = None) -> Dict:
+        """Создание промпта для финансового анализа"""
         
-        title = news_item.get('title', '')
+        title = news_item.get('title', '')[:200]
         description = news_item.get('description', '')
-        content = news_item.get('content', '') or description[:500]
+        content = news_item.get('content', '') or description[:300]
         
         if provider == 'gigachat':
-            # OpenAI-совместимый формат для GigaChat
-            return {
-                "model": "GigaChat",
-                "messages": [
-                    {
-                        "role": "user", 
-                        "content": f"""Анализируй новость: '{title}'
-                        Задача: найди упоминания российских компаний и их биржевые тикеры.
-                        Примеры: Сбербанк -> SBER, Газпром -> GAZP, Лукойл -> LKOH.
-                        Верни ТОЛЬКО JSON в формате: {{"tickers": ["SBER", "GAZP"]}}
-                        Если тикеров нет, верни: {{"tickers": []}}
-                        Только JSON, никакого текста!"""
-                    }
-                ],
-                "temperature": 0.1,
-                "max_tokens": 300
-            }
-        else:
-            # OpenRouter
-            system_prompt = """You MUST return ONLY JSON: {"tickers": ["SBER", "GAZP"]}"""
+            # Промпт для GigaChat
+            prompt_text = f"""Анализируй финансовую новость для трейдинга на российском рынке.
+
+Новость: {title}
+
+Задача:
+1. Найди упоминания российских компаний и их биржевые тикеры MOEX (пример: Сбербанк -> SBER, Газпром -> GAZP).
+2. Определи тип события: dividend (дивиденды), earnings_report (отчетность), merger (слияние), regulatory (регуляторные новости), market_update (общие новости).
+3. Оцени тональность: positive, negative, neutral.
+4. Оцени силу влияния на цену (1-10): 1=слабое, 10=сильное.
+5. Краткое обоснование (1 предложение).
+
+Верни ТОЛЬКО JSON в формате:
+{{
+    "tickers": ["SBER"],
+    "event_type": "dividend",
+    "sentiment": "positive",
+    "impact_score": 7,
+    "reason": "Совет директоров рекомендовал увеличение дивидендов"
+}}
+
+Если тикеров нет или новость не финансовая: {{"tickers": [], "reason": "No financial content"}}
+Только JSON, никакого текста!"""
             
             return {
-                "model": "google/gemini-2.0-flash-exp:free",
+                "model": "GigaChat",
+                "messages": [{"role": "user", "content": prompt_text}],
+                "temperature": 0.1,
+                "max_tokens": 500
+            }
+        else:
+            # Промпт для OpenRouter (разные модели)
+            system_prompt = """Ты финансовый аналитик. Анализируй новости российского рынка.
+Верни ТОЛЬКО JSON в формате: 
+{"tickers": ["SBER"], "event_type": "dividend", "sentiment": "positive", "impact_score": 7, "reason": "..."}
+Если нет финансового содержания: {"tickers": [], "reason": "No financial content"}"""
+            
+            return {
+                "model": model or 'google/gemini-2.0-flash:free',
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"News: {title}\n\nFind Russian stock tickers."}
+                    {"role": "user", "content": f"Новость: {title}\n\n{content[:200]}"}
                 ],
                 "temperature": 0.1,
-                "max_tokens": 200,
+                "max_tokens": 400,
                 "response_format": {"type": "json_object"}
             }
     
     async def _make_gigachat_request(self, prompt_data: Dict) -> Optional[Dict]:
-        """Запрос к GigaChat API (ИСПРАВЛЕНО)"""
+        """Запрос к GigaChat API"""
         if not self.gigachat_auth:
             return None
         
@@ -176,34 +205,54 @@ class NlpEngine:
             'Accept': 'application/json'
         }
         
-        # Логируем запрос для отладки
-        logger.debug(f"📨 GigaChat запрос: {json.dumps(prompt_data, ensure_ascii=False)[:150]}")
-        
         try:
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 response = await client.post(url, headers=headers, json=prompt_data)
                 
-                logger.debug(f"📨 GigaChat ответ: {response.status_code}")
-                
                 if response.status_code == 200:
                     return response.json()
-                elif response.status_code == 400:
-                    logger.error(f"❌ GigaChat 400: {response.text[:200]}")
-                    return None
                 elif response.status_code == 401:
                     logger.warning("⚠️ GigaChat токен истёк, обновляю...")
                     self.gigachat_auth.access_token = None
                     return None
                 else:
-                    logger.error(f"❌ GigaChat ошибка {response.status_code}")
+                    logger.error(f"❌ GigaChat ошибка {response.status_code}: {response.text[:100]}")
                     return None
                     
         except Exception as e:
             logger.error(f"❌ Ошибка запроса к GigaChat: {str(e)[:100]}")
             return None
     
+    async def _try_openrouter_model(self, model: str, news_item: Dict) -> Optional[Dict]:
+        """Попытка запроса к конкретной модели OpenRouter"""
+        try:
+            prompt_data = self._create_prompt_for_provider(news_item, 'openrouter', model)
+            
+            headers = {
+                "Authorization": f"Bearer {self.providers['openrouter']['token']}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com"
+            }
+            
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    url=self.providers['openrouter']['url'],
+                    headers=headers,
+                    json=prompt_data
+                )
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.debug(f"   ⚠️ OpenRouter {model}: {response.status_code}")
+                    return None
+                    
+        except Exception as e:
+            logger.debug(f"   ⚠️ OpenRouter {model} ошибка: {str(e)[:50]}")
+            return None
+    
     async def analyze_news(self, news_item: Dict) -> Optional[Dict]:
-        """Анализ новости с использованием доступных провайдеров"""
+        """Анализ новости с ротацией провайдеров и моделей"""
         
         self.stats['total_requests'] += 1
         cache_key = self._create_cache_key(news_item)
@@ -214,69 +263,64 @@ class NlpEngine:
         
         self.stats['cache_misses'] += 1
         
-        if not self.provider_priority:
-            return None
-        
-        for provider in self.provider_priority:
-            if not self.providers[provider]['enabled']:
-                continue
+        # 1. Пробуем GigaChat
+        if 'gigachat' in self.provider_priority and self.providers['gigachat']['enabled']:
+            logger.info("📡 Пробую провайдер: GIGACHAT")
+            self.stats['by_provider']['gigachat']['requests'] += 1
             
-            logger.info(f"📡 Пробую провайдер: {provider.upper()}")
-            self.stats['by_provider'][provider]['requests'] += 1
-            
-            for attempt in range(2):  # 2 попытки
-                try:
-                    prompt_data = self._create_prompt_for_provider(news_item, provider)
+            try:
+                prompt_data = self._create_prompt_for_provider(news_item, 'gigachat')
+                response_data = await self._make_gigachat_request(prompt_data)
+                
+                if response_data:
+                    ai_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
                     
-                    if provider == 'gigachat':
-                        response_data = await self._make_gigachat_request(prompt_data)
-                    else:
-                        headers = {
-                            "Authorization": f"Bearer {self.providers['openrouter']['token']}",
-                            "Content-Type": "application/json",
-                            "HTTP-Referer": "https://github.com"
-                        }
+                    if ai_response:
+                        analysis_result = self._parse_ai_response(ai_response, news_item, 'gigachat')
                         
-                        async with httpx.AsyncClient(timeout=30.0) as client:
-                            response = await client.post(
-                                url=self.providers[provider]['url'],
-                                headers=headers,
-                                json=prompt_data
-                            )
-                            response_data = response.json() if response.status_code == 200 else None
-                    
-                    if response_data:
-                        ai_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        
-                        if ai_response:
-                            analysis_result = self._parse_ai_response(ai_response, news_item, provider)
-                            
-                            if analysis_result:
-                                self.stats['successful_requests'] += 1
-                                self.stats['by_provider'][provider]['success'] += 1
-                                
-                                self.analysis_cache[cache_key] = analysis_result
-                                if len(self.analysis_cache) > 50:
-                                    self.analysis_cache.pop(next(iter(self.analysis_cache)))
-                                
-                                logger.info(f"   ✅ {provider}: успешный анализ")
-                                return analysis_result
-                    
-                except Exception as e:
-                    logger.debug(f"   ⚠️ {provider} попытка {attempt+1}: {str(e)[:50]}")
-                    await asyncio.sleep(1)
-            
-            await asyncio.sleep(0.5)
+                        if analysis_result:
+                            self.stats['successful_requests'] += 1
+                            self.stats['by_provider']['gigachat']['success'] += 1
+                            self.analysis_cache[cache_key] = analysis_result
+                            logger.info("   ✅ GigaChat: успешный анализ")
+                            return analysis_result
+            except Exception as e:
+                logger.debug(f"   ⚠️ GigaChat ошибка: {str(e)[:50]}")
         
-        logger.info("ℹ️ Все ИИ-провайдеры недоступны")
+        # 2. Пробуем OpenRouter с ротацией моделей
+        if 'openrouter' in self.provider_priority and self.providers['openrouter']['enabled']:
+            logger.info("📡 Пробую провайдер: OPENROUTER")
+            
+            for model in self.openrouter_models:
+                self.stats['by_provider']['openrouter']['requests'] += 1
+                logger.debug(f"   Модель: {model}")
+                
+                response_data = await self._try_openrouter_model(model, news_item)
+                
+                if response_data:
+                    ai_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    
+                    if ai_response:
+                        analysis_result = self._parse_ai_response(ai_response, news_item, 'openrouter')
+                        
+                        if analysis_result:
+                            self.stats['successful_requests'] += 1
+                            self.stats['by_provider']['openrouter']['success'] += 1
+                            self.analysis_cache[cache_key] = analysis_result
+                            logger.info(f"   ✅ OpenRouter ({model}): успешный анализ")
+                            return analysis_result
+                
+                await asyncio.sleep(0.5)  # Пауза между запросами
+        
+        logger.info("ℹ️ Все ИИ-провайдеры недоступны или не нашли финансового содержания")
         return None
     
     def _parse_ai_response(self, response: str, news_item: Dict, provider: str) -> Optional[Dict]:
-        """Парсинг ответа ИИ"""
+        """Парсинг ответа ИИ в структурированный анализ"""
         try:
             response = response.strip()
             
-            # Ищем JSON
+            # Ищем JSON в ответе
             start = response.find('{')
             end = response.rfind('}') + 1
             
@@ -287,28 +331,56 @@ class NlpEngine:
             data = json.loads(json_str)
             
             tickers = data.get('tickers', [])
-            
             if not isinstance(tickers, list):
+                tickers = []
+            
+            # Фильтруем только валидные тикеры (3-5 букв, uppercase)
+            valid_tickers = []
+            for ticker in tickers:
+                if isinstance(ticker, str) and 2 <= len(ticker) <= 5 and ticker.isalpha():
+                    valid_tickers.append(ticker.upper())
+            
+            # Если нет тикеров или причина "No financial content" - пропускаем
+            reason = data.get('reason', '').lower()
+            if not valid_tickers or 'no financial' in reason:
                 return None
             
-            # Создаем простой результат
+            event_type = data.get('event_type', 'market_update')
+            sentiment = data.get('sentiment', 'neutral')
+            impact_score = min(10, max(1, int(data.get('impact_score', 5))))
+            
+            # Рассчитываем confidence на основе качества анализа
+            confidence = 0.7  # базовый для ИИ
+            if event_type != 'market_update':
+                confidence += 0.1
+            if sentiment != 'neutral':
+                confidence += 0.1
+            if impact_score >= 7:
+                confidence += 0.1
+            confidence = min(0.9, confidence)
+            
             result = {
                 'news_id': news_item.get('id', ''),
                 'news_title': news_item.get('title', ''),
-                'tickers': tickers,
-                'event_type': 'market_update',
-                'impact_score': 5 if tickers else 3,
-                'relevance_score': 70 if tickers else 30,
-                'sentiment': 'neutral',
-                'summary': f"Найдено {len(tickers)} тикеров",
+                'news_source': news_item.get('source', ''),
+                'tickers': valid_tickers,
+                'event_type': event_type,
+                'impact_score': impact_score,
+                'relevance_score': 70 if valid_tickers else 30,
+                'sentiment': sentiment,
+                'horizon': 'short_term',
+                'summary': data.get('reason', f"Найдено {len(valid_tickers)} тикеров"),
+                'confidence': confidence,
                 'ai_provider': provider,
-                'confidence': 0.7 if tickers else 0.3
+                'analysis_timestamp': datetime.now().isoformat(),
+                'simple_analysis': False
             }
             
-            logger.info(f"   📊 {provider}: найдено {len(tickers)} тикеров")
+            logger.info(f"   📊 {provider}: {len(valid_tickers)} тикеров, {event_type}, {sentiment}")
             return result
             
-        except:
+        except Exception as e:
+            logger.debug(f"   ⚠️ Ошибка парсинга ответа {provider}: {str(e)[:50]}")
             return None
     
     def _create_cache_key(self, news_item: Dict) -> str:
@@ -317,7 +389,7 @@ class NlpEngine:
         return f"{source}_{title}"
     
     def get_current_provider(self) -> str:
-        return self.provider_priority[0] if self.provider_priority else "simple"
+        return self.provider_priority[0] if self.provider_priority else "none"
     
     def get_stats(self) -> Dict:
         success_rate = (self.stats['successful_requests'] / self.stats['total_requests'] * 100) if self.stats['total_requests'] > 0 else 0
@@ -338,6 +410,9 @@ class NlpEngine:
             'total_requests': self.stats['total_requests'],
             'successful_requests': self.stats['successful_requests'],
             'success_rate': round(success_rate, 1),
+            'cache_hits': self.stats['cache_hits'],
+            'cache_misses': self.stats['cache_misses'],
             'current_provider': self.get_current_provider(),
+            'openrouter_models': len(self.openrouter_models),
             'providers': provider_stats
         }
