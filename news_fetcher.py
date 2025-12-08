@@ -236,6 +236,7 @@ class NewsFetcher:
             newsapi_task,
             zenserp_task,
             moex_task,
+            rbc_task,
             return_exceptions=True
         )
         
