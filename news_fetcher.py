@@ -182,6 +182,47 @@ class NewsFetcher:
         logger.info(f"🔄 Удалено {len(all_articles) - len(unique_articles)} дубликатов")
         return unique_articles
     
+    async def fetch_rbc_rss(self) -> List[Dict]:
+    """Резервный источник: RSS лента РБК (бесплатно)"""
+    articles = []
+    rss_urls = [
+        "https://rssexport.rbc.ru/rbcnews/news/30/full.rss",
+        "https://rssexport.rbc.ru/rbcnews/news/20/full.rss"  # Финансы
+    ]
+    
+    try:
+        for url in rss_urls:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        xml_content = await response.text()
+                        root = ET.fromstring(xml_content)
+                        
+                        for item in root.findall('.//item'):
+                            title_elem = item.find('title')
+                            description_elem = item.find('description')
+                            link_elem = item.find('link')
+                            pub_date_elem = item.find('pubDate')
+                            
+                            if title_elem is not None:
+                                articles.append({
+                                    'id': f"rbc_{pub_date_elem.text if pub_date_elem else ''}_{len(articles)}",
+                                    'source': 'RBC',
+                                    'title': title_elem.text or '',
+                                    'description': description_elem.text if description_elem is not None else '',
+                                    'url': link_elem.text if link_elem is not None else '',
+                                    'published_at': pub_date_elem.text if pub_date_elem is not None else '',
+                                    'source_name': 'РБК',
+                                    'fetched_at': datetime.now().isoformat()
+                                })
+        
+        logger.info(f"✅ RBC RSS: получено {len(articles)} новостей")
+        return articles
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка RBC RSS: {e}")
+        return []
+        
     async def fetch_all_news(self) -> List[Dict]:
         """Получение всех новостей из всех источников"""
         logger.info("📥 Начинаю сбор новостей из всех источников...")
