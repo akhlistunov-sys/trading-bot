@@ -1,4 +1,4 @@
-# finam_verifier.py
+# finam_verifier.py - ПОЛНЫЙ ИСПРАВЛЕННЫЙ ФАЙЛ
 import logging
 import os
 import aiohttp
@@ -172,41 +172,40 @@ class FinamVerifier:
             }
     
     async def _get_finam_price(self, ticker: str) -> Optional[Dict]:
-    """Получение текущей цены с Finam API (исправленный)"""
-    finam_ticker = self.ticker_mapping.get(ticker.upper())
-    if not finam_ticker:
-        return None
-    
-    try:
-        # Используем Trade API Finam с Bearer токеном
-        url = f"https://trade-api.finam.ru/public/api/v1/securities/{finam_ticker}/quotes"
-        
-        headers = {
-            'Authorization': f'Bearer {self.api_token}',  # ✅ ПРАВИЛЬНЫЙ ФОРМАТ
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=10) as response:
-                if response.status == 200:
-                    data = await response.json()
+        """Получение текущей цены с Finam API (ИСПРАВЛЕННЫЙ)"""
+        try:
+            # Используем Trade API Finam с Bearer токеном
+            url = f"https://trade-api.finam.ru/public/api/v1/securities/{ticker}/quotes"
+            
+            # ✅ ИСПРАВЛЕННЫЙ ЗАГОЛОВОК (Bearer вместо X-Api-Key)
+            headers = {
+                'Authorization': f'Bearer {self.api_token}',
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        if data.get('status') == 'Ok':
+                            quotes = data.get('data', {}).get('quotes', [])
+                            if quotes:
+                                last_price = quotes[0].get('last')
+                                if last_price:
+                                    logger.debug(f"   ✅ Finam цена {ticker}: {last_price}")
+                                    return {'price': float(last_price), 'source': 'finam_api'}
                     
-                    if data.get('status') == 'Ok':
-                        quotes = data.get('data', {}).get('quotes', [])
-                        if quotes:
-                            last_price = quotes[0].get('last')
-                            if last_price:
-                                logger.debug(f"   ✅ Finam цена {ticker}: {last_price}")
-                                return {'price': float(last_price), 'source': 'finam_api'}
-                
-                # Логируем ошибку
-                logger.error(f"   ❌ Finam API ошибка {response.status}: {await response.text()[:100]}")
-                return None
-                
-    except Exception as e:
-        logger.error(f"   ❌ Finam price ошибка для {ticker}: {str(e)[:100]}")
-        return None
+                    # Логируем ошибку
+                    logger.error(f"   ❌ Finam API ошибка {response.status}: {await response.text()[:100]}")
+                    return None
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"   ❌ Finam price ошибка для {ticker}: {str(e)[:100]}")
+            return None
     
     async def _get_finam_volume(self, ticker: str) -> Optional[Dict]:
         """Получение данных об объёмах"""
@@ -242,7 +241,7 @@ class FinamVerifier:
             return {'current_volume': 1000000, 'avg_volume': 1500000, 'source': 'fallback'}
             
         except Exception as e:
-            logger.debug(f"   ⚠️ Finam volume для {ticker}: {str(e)[:50]}")
+            logger.debug(f"   ⚠️ Finam volume ошибка для {ticker}: {str(e)[:50]}")
             return {'current_volume': 1000000, 'avg_volume': 1500000, 'source': 'error'}
     
     def _get_sector(self, ticker: str) -> str:
