@@ -9,21 +9,45 @@ import asyncio
 import json
 from typing import Dict, List
 
-# Импорт наших модулей
-from news_fetcher import NewsFetcher
-from nlp_engine import NlpEngine
-from decision_engine import DecisionEngine
-from tinkoff_executor import TinkoffExecutor
-from virtual_portfolio import VirtualPortfolioPro
-from simple_analyzer import SimpleAnalyzer
+# ===== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: принудительная загрузка переменных окружения =====
+# Это ДОЛЖНО быть ДО импорта наших модулей, чтобы переменные успели загрузиться
+from dotenv import load_dotenv
 
-# Настройка логирования
+# Принудительно загружаем переменные окружения из Render Dashboard
+# override=True гарантирует, что переменные из Dashboard перезапишут любые другие
+load_dotenv(override=True)
+
+# Логируем ЗАГРУЖЕННЫЕ значения для отладки (видны в Runtime Logs)
+loaded_confidence = os.getenv("MIN_CONFIDENCE", "NOT_FOUND")
+loaded_impact = os.getenv("MIN_IMPACT_SCORE", "NOT_FOUND")
+loaded_position = os.getenv("BASE_POSITION_SIZE", "NOT_FOUND")
+loaded_stop = os.getenv("BASE_STOP_LOSS", "NOT_FOUND")
+
+# Инициализируем логирование сразу после загрузки переменных
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+# Логируем факт загрузки переменных (это будет видно ПЕРВЫМ в логах)
+logger.info("=" * 60)
+logger.info("🔧 ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ЗАГРУЖЕНЫ:")
+logger.info(f"   • MIN_CONFIDENCE: {loaded_confidence}")
+logger.info(f"   • MIN_IMPACT_SCORE: {loaded_impact}")
+logger.info(f"   • BASE_POSITION_SIZE: {loaded_position}")
+logger.info(f"   • BASE_STOP_LOSS: {loaded_stop}")
+logger.info("=" * 60)
+# ===== КОНЕЦ ИСПРАВЛЕНИЯ =====
+
+# ТЕПЕРЬ импортируем наши модули (переменные уже загружены)
+from news_fetcher import NewsFetcher
+from nlp_engine import NlpEngine
+from decision_engine import DecisionEngine
+from tinkoff_executor import TinkoffExecutor
+from virtual_portfolio import VirtualPortfolioPro
+from simple_analyzer import SimpleAnalyzer
 
 app = Flask(__name__)
 
@@ -41,13 +65,15 @@ last_signals = []
 system_stats = {}
 start_time = datetime.datetime.now()
 
-# Инициализация модулей
+# Инициализация модулей (теперь decision_engine получит правильные переменные)
 news_fetcher = NewsFetcher()
 nlp_engine = NlpEngine()
-decision_engine = DecisionEngine()
+decision_engine = DecisionEngine()  # ЭТОТ ВЫЗОВ теперь получит MIN_CONFIDENCE=0.5 и MIN_IMPACT_SCORE=3
 tinkoff_executor = TinkoffExecutor()
 virtual_portfolio = VirtualPortfolioPro(initial_capital=100000)
 simple_analyzer = SimpleAnalyzer()
+
+# ... остальной код БЕЗ ИЗМЕНЕНИЙ (HTML_TEMPLATE и все функции остаются как были) ...
 
 # HTML шаблон для светлого интерфейса
 HTML_TEMPLATE = """
