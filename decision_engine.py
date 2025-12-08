@@ -113,23 +113,39 @@ class DecisionEngine:
         return 'BUY' if analysis.get('confidence', 0) > 0.6 else 'HOLD'
     
     def generate_signals(self, analysis: Dict) -> List[Dict]:
-        """Генерация торговых сигналов на основе анализа"""
+    """Генерация торговых сигналов на основе анализа"""
+    
+    signals = []
+    
+    # Проверяем минимальные требования
+    confidence = analysis.get('confidence', 0)
+    impact_score = analysis.get('impact_score', 0)
+    relevance_score = analysis.get('relevance_score', 0)
+    tickers = analysis.get('tickers', [])
+    
+    # ОТЛАДОЧНЫЙ ЛОГ - добавьте эту строку
+    logger.info(f"🔍 DecisionEngine проверка: conf={confidence:.2f}, impact={impact_score}, "
+               f"relevance={relevance_score}, tickers={tickers}, "
+               f"min_conf={self.min_confidence}, min_impact={self.min_impact_score}")
+    
+    if (confidence < self.min_confidence or 
+        impact_score < self.min_impact_score or 
+        relevance_score < 50 or 
+        not tickers):
         
-        signals = []
+        # Детальный лог что именно не прошло
+        failed_checks = []
+        if confidence < self.min_confidence:
+            failed_checks.append(f"conf {confidence:.2f}<{self.min_confidence}")
+        if impact_score < self.min_impact_score:
+            failed_checks.append(f"impact {impact_score}<{self.min_impact_score}")
+        if relevance_score < 50:
+            failed_checks.append(f"relevance {relevance_score}<50")
+        if not tickers:
+            failed_checks.append("no tickers")
         
-        # Проверяем минимальные требования
-        confidence = analysis.get('confidence', 0)
-        impact_score = analysis.get('impact_score', 0)
-        relevance_score = analysis.get('relevance_score', 0)
-        tickers = analysis.get('tickers', [])
-        
-        if (confidence < self.min_confidence or 
-            impact_score < self.min_impact_score or 
-            relevance_score < 50 or 
-            not tickers):
-            
-            logger.info(f"ℹ️ Анализ не прошел фильтры: conf={confidence:.2f}, impact={impact_score}, relevance={relevance_score}")
-            return signals
+        logger.info(f"ℹ️ Анализ отброшен: {', '.join(failed_checks)}")
+        return signals
         
         # Для каждого тикера создаем сигнал
         for ticker in tickers[:3]:  # Ограничиваем 3 тикерами
