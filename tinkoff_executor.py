@@ -1,3 +1,4 @@
+# tinkoff_executor.py - ПОЛНЫЙ ОБНОВЛЁННЫЙ ФАЙЛ С FINAM
 import logging
 import os
 import aiohttp
@@ -8,64 +9,92 @@ import json
 logger = logging.getLogger(__name__)
 
 class TinkoffExecutor:
-    """Исполнительный модуль с MOEX API вместо Tinkoff"""
+    """Исполнительный модуль с Finam API и MOEX"""
     
     def __init__(self):
-        # Убираем Tinkoff токен - он не нужен для MOEX
-        self.moex_available = True
+        self.finam_token = os.getenv('FINAM_API_TOKEN', 'bbae67bd-2578-4b00-84bb-f8423f17756d')
+        self.finam_client_id = os.getenv('FINAM_CLIENT_ID', '621971R9IP3')
         
-        # Маппинг тикеров MOEX (правильные тикеры для MOEX)
+        # Маппинг тикеров
         self.ticker_mapping = {
-            'LKOH': 'LKOH', 'ROSN': 'ROSN',
-            'GAZP': 'GAZP', 'NVTK': 'NVTK',
-            'SBER': 'SBER', 'VTBR': 'VTBR',
-            'TCSG': 'TCSG', 'GMKN': 'GMKN',
-            'ALRS': 'ALRS', 'POLY': 'POLY',
-            'MGNT': 'MGNT', 'FIVE': 'FIVE',
-            'MTSS': 'MTSS', 'MOEX': 'MOEX',
-            'PHOR': 'PHOR', 'CHMF': 'CHMF',
-            'YNDX': 'YNDX', 'OZON': 'OZON',
-            'TATN': 'TATN', 'SNGS': 'SNGS',
-            'BANE': 'BANE', 'TRNFP': 'TRNFP'
+            'SBER': 'SBER', 'GAZP': 'GAZP', 'LKOH': 'LKOH', 'ROSN': 'ROSN',
+            'NVTK': 'NVTK', 'GMKN': 'GMKN', 'PLZL': 'PLZL', 'POLY': 'POLY',
+            'TATN': 'TATN', 'ALRS': 'ALRS', 'CHMF': 'CHMF', 'NLMK': 'NLMK',
+            'MAGN': 'MAGN', 'SNGS': 'SNGS', 'VTBR': 'VTBR', 'TCSG': 'TCSG',
+            'MTSS': 'MTSS', 'AFKS': 'AFKS', 'FEES': 'FEES', 'MGNT': 'MGNT',
+            'FIVE': 'FIVE', 'YNDX': 'YNDX', 'OZON': 'OZON', 'MOEX': 'MOEX',
+            'RTKM': 'RTKM', 'PHOR': 'PHOR', 'TRNFP': 'TRNFP', 'BANE': 'BANE',
+            'IRAO': 'IRAO', 'HYDR': 'HYDR', 'RSTI': 'RSTI', 'ENPL': 'ENPL',
+            'PIKK': 'PIKK', 'LSRG': 'LSRG', 'ETLN': 'ETLN', 'SMLT': 'SMLT',
+            'AFLT': 'AFLT', 'GLTR': 'GLTR', 'DSKY': 'DSKY', 'MVID': 'MVID',
+            'GCHE': 'GCHE', 'KAZT': 'KAZT', 'URKA': 'URKA', 'AKRN': 'AKRN',
+            'CBOM': 'CBOM', 'SFIN': 'SFIN', 'RUGR': 'RUGR', 'SVCB': 'SVCB',
+            'FCIT': 'FCIT', 'ALFA': 'ALFA', 'ABIO': 'ABIO', 'CIAN': 'CIAN',
+            'POSI': 'POSI', 'VKCO': 'VKCO', 'QIWI': 'QIWI', 'OKEY': 'OKEY'
         }
         
-        # Фолбэк цены (актуальные примерные цены на декабрь 2024)
+        # Приоритет источников цен
+        self.price_sources = ['finam', 'moex', 'fallback']
+        
+        # Фолбэк цены
         self.fallback_prices = {
-            'SBER': 285.40,    # ~285 руб
-            'GAZP': 168.20,    # ~168 руб
-            'LKOH': 7520.0,    # ~7520 руб
-            'ROSN': 592.80,    # ~593 руб
-            'VTBR': 0.026,     # ~0.026 руб
-            'NVTK': 1725.0,    # ~1725 руб
-            'TCSG': 3350.0,    # ~3350 руб
-            'GMKN': 16250.0,   # ~16250 руб
-            'ALRS': 76.80,     # ~77 руб
-            'POLY': 1120.0,    # ~1120 руб
-            'MGNT': 5620.0,    # ~5620 руб
-            'FIVE': 2740.0,    # ~2740 руб
-            'MTSS': 285.50,    # ~285 руб
-            'MOEX': 152.30,    # ~152 руб
-            'PHOR': 6620.0,    # ~6620 руб
-            'CHMF': 1380.0,    # ~1380 руб
-            'YNDX': 2950.0,    # ~2950 руб
-            'OZON': 2450.0,    # ~2450 руб
+            'SBER': 285.40, 'GAZP': 168.20, 'LKOH': 7520.0, 'ROSN': 592.80,
+            'NVTK': 1725.0, 'GMKN': 16250.0, 'PLZL': 12500.0, 'POLY': 1120.0,
+            'TATN': 580.0, 'ALRS': 76.80, 'CHMF': 1380.0, 'NLMK': 180.50,
+            'MAGN': 55.30, 'SNGS': 38.20, 'VTBR': 0.026, 'TCSG': 3350.0,
+            'MTSS': 285.50, 'AFKS': 28.40, 'FEES': 0.185, 'MGNT': 5620.0,
+            'FIVE': 2740.0, 'YNDX': 2950.0, 'OZON': 2450.0, 'MOEX': 174.74,
+            'RTKM': 65.30, 'PHOR': 6620.0, 'TRNFP': 155000.0, 'BANE': 210.0
         }
         
-        logger.info("🏦 MOEX Executor инициализирован")
-        logger.info(f"📊 Загружено {len(self.ticker_mapping)} тикеров")
-        logger.info("💰 Источник цен: MOEX API (бесплатный)")
+        logger.info("🏦 TinkoffExecutor инициализирован с Finam API")
+        logger.info(f"   Finam токен: {self.finam_token[:8]}...")
+        logger.info(f"   Источники цен: {', '.join(self.price_sources)}")
+        logger.info(f"   Тикеров в маппинге: {len(self.ticker_mapping)}")
+    
+    async def get_price_from_finam(self, ticker: str) -> Optional[float]:
+        """Получение цены с Finam API"""
+        finam_ticker = self.ticker_mapping.get(ticker.upper())
+        if not finam_ticker:
+            return None
+        
+        try:
+            # Используем Trade API Finam
+            url = f"https://trade-api.finam.ru/public/api/v1/securities/{finam_ticker}/quotes"
+            
+            headers = {
+                'X-Api-Key': self.finam_token,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        if data.get('status') == 'Ok':
+                            quotes = data.get('data', {}).get('quotes', [])
+                            if quotes:
+                                last_price = quotes[0].get('last')
+                                if last_price:
+                                    logger.debug(f"   ✅ Finam цена {ticker}: {last_price}")
+                                    return float(last_price)
+            
+            return None
+            
+        except Exception as e:
+            logger.debug(f"   ⚠️ Finam price ошибка для {ticker}: {str(e)[:50]}")
+            return None
     
     async def get_price_from_moex(self, ticker: str) -> Optional[float]:
-        """Получение цены с MOEX API (основной метод)"""
+        """Получение цены с MOEX (резерв)"""
         moex_ticker = self.ticker_mapping.get(ticker.upper())
         if not moex_ticker:
-            logger.warning(f"⚠️ Тикер {ticker} не найден в маппинге MOEX")
             return None
         
         urls = [
-            # Основной URL для акций
             f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/{moex_ticker}.json?iss.meta=off&iss.json=extended",
-            # Резервный URL
             f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{moex_ticker}.json?iss.meta=off"
         ]
         
@@ -76,17 +105,16 @@ class TinkoffExecutor:
                         if response.status == 200:
                             data = await response.json()
                             
-                            # Парсим разные форматы ответов MOEX
+                            # Парсим разные форматы MOEX
                             price = None
                             
-                            # Формат 1: extended JSON
+                            # Формат extended JSON
                             if isinstance(data, list) and len(data) > 1:
                                 marketdata = data[1]
                                 if 'marketdata' in marketdata:
                                     columns = marketdata['columns']
                                     data_rows = marketdata['data']
                                     if data_rows:
-                                        # Ищем колонку с LAST ценой
                                         if 'LAST' in columns:
                                             idx = columns.index('LAST')
                                             price = data_rows[0][idx]
@@ -94,7 +122,7 @@ class TinkoffExecutor:
                                             idx = columns.index('LCURRENTPRICE')
                                             price = data_rows[0][idx]
                             
-                            # Формат 2: обычный JSON
+                            # Формат обычный JSON
                             elif 'marketdata' in data:
                                 columns = data['marketdata'].get('columns', [])
                                 data_rows = data['marketdata'].get('data', [])
@@ -107,33 +135,39 @@ class TinkoffExecutor:
                                         price = data_rows[0][idx]
                             
                             if price and price > 0:
-                                logger.info(f"✅ MOEX: {ticker} = {price:.2f} руб.")
+                                logger.debug(f"   ✅ MOEX цена {ticker}: {price}")
                                 return float(price)
-                                
-            except asyncio.TimeoutError:
-                logger.warning(f"⏰ MOEX таймаут для {ticker}")
-                continue
+                                    
             except Exception as e:
-                logger.debug(f"🔧 MOEX ошибка для {ticker}: {str(e)[:50]}")
+                logger.debug(f"   ⚠️ MOEX price ошибка для {ticker}: {str(e)[:50]}")
                 continue
         
         return None
     
     async def get_current_price(self, ticker: str) -> Optional[float]:
-        """Получение текущей цены акции (MOEX → фолбэк)"""
+        """Получение текущей цены (Finam → MOEX → Fallback)"""
         
         ticker_upper = ticker.upper()
         
-        # 1. Пробуем MOEX API
-        moex_price = await self.get_price_from_moex(ticker_upper)
-        if moex_price:
-            return moex_price
-        
-        # 2. Фолбэк на фиксированные цены
-        if ticker_upper in self.fallback_prices:
-            price = self.fallback_prices[ticker_upper]
-            logger.info(f"💰 ФОЛБЭК цена {ticker}: {price:.2f} руб.")
-            return price
+        # Пробуем все источники по порядку
+        for source in self.price_sources:
+            if source == 'finam':
+                price = await self.get_price_from_finam(ticker_upper)
+                if price:
+                    logger.info(f"💰 Finam цена {ticker}: {price:.2f} руб.")
+                    return price
+            
+            elif source == 'moex':
+                price = await self.get_price_from_moex(ticker_upper)
+                if price:
+                    logger.info(f"💰 MOEX цена {ticker}: {price:.2f} руб.")
+                    return price
+            
+            elif source == 'fallback':
+                if ticker_upper in self.fallback_prices:
+                    price = self.fallback_prices[ticker_upper]
+                    logger.info(f"💰 Fallback цена {ticker}: {price:.2f} руб.")
+                    return price
         
         logger.warning(f"⚠️ Цена не найдена для {ticker}")
         return None
@@ -143,7 +177,7 @@ class TinkoffExecutor:
         
         ticker = signal.get('ticker', '')
         action = signal.get('action', '')
-        size = signal.get('size', 0)
+        size = signal.get('position_size', 1)
         
         if not ticker or not action or size <= 0:
             return {
@@ -172,7 +206,9 @@ class TinkoffExecutor:
             'total_value': current_price * size,
             'message': f'Виртуальный ордер: {action} {ticker} x{size} по {current_price:.2f} руб.',
             'virtual': True,
-            'price_source': 'MOEX' if ticker.upper() in self.ticker_mapping else 'FALLBACK'
+            'signal_source': signal.get('ai_provider', 'unknown'),
+            'signal_confidence': signal.get('confidence', 0.5),
+            'timestamp': datetime.now().isoformat()
         }
     
     def get_ticker_info(self, ticker: str) -> Dict:
@@ -183,25 +219,30 @@ class TinkoffExecutor:
         return {
             'ticker': ticker.upper(),
             'available': available,
+            'has_finam_data': available,
             'has_moex_data': available,
             'fallback_price': self.fallback_prices.get(ticker.upper()),
-            'message': 'Тикер доступен в MOEX' if available else 'Тикер не найден'
+            'message': 'Тикер доступен' if available else 'Тикер не найден'
         }
     
     def get_available_tickers(self) -> List[str]:
         """Получение списка доступных тикеров"""
         return list(self.ticker_mapping.keys())
     
-    async def test_moex_connection(self) -> Dict:
-        """Тест соединения с MOEX API"""
+    async def test_connections(self) -> Dict:
+        """Тест всех соединений"""
         test_ticker = 'SBER'
-        price = await self.get_price_from_moex(test_ticker)
+        
+        finam_price = await self.get_price_from_finam(test_ticker)
+        moex_price = await self.get_price_from_moex(test_ticker)
         
         return {
-            'moex_available': self.moex_available,
-            'test_ticker': test_ticker,
-            'price_received': price is not None,
-            'price': price,
+            'finam_available': finam_price is not None,
+            'finam_price': finam_price,
+            'moex_available': moex_price is not None,
+            'moex_price': moex_price,
             'fallback_price': self.fallback_prices.get(test_ticker),
-            'tickers_count': len(self.ticker_mapping)
+            'test_ticker': test_ticker,
+            'tickers_count': len(self.ticker_mapping),
+            'sources_priority': self.price_sources
         }
