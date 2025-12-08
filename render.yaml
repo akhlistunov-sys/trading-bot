@@ -4,7 +4,7 @@ services:
     env: python
     region: frankfurt
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: bash render_build.sh
     startCommand: python app.py
     autoDeploy: true
     envVars:
@@ -20,7 +20,7 @@ services:
       - key: CHECK_INTERVAL_MINUTES
         value: 15
       
-      # ==================== РИСК-МЕНЕДЖМЕНТ (АГРЕССИВНЫЙ) ====================
+      # ==================== РИСК-МЕНЕДЖМЕНТ ====================
       - key: RISK_PER_TRADE
         value: 1.5
       - key: STOP_LOSS_PCT
@@ -55,9 +55,3 @@ services:
         sync: false
       - key: FINAM_CLIENT_ID
         value: 621971R9IP3
-      
-      # ==================== ДОПОЛНИТЕЛЬНЫЕ (опционально) ====================
-      - key: NewsAPI
-        sync: false
-      - key: ZENSEPTAPI
-        sync: false
