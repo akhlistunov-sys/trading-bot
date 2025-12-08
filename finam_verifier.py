@@ -172,48 +172,41 @@ class FinamVerifier:
             }
     
     async def _get_finam_price(self, ticker: str) -> Optional[Dict]:
-        """Получение текущей цены с Finam"""
-        try:
-            # Используем публичный Finam API для цен
-            url = f"https://finam.ru/quote/moscow/{ticker}/"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=10) as response:
-                    if response.status == 200:
-                        # Парсим HTML для получения цены (упрощённо)
-                        html = await response.text()
-                        
-                        # Ищем цену в HTML (примерный парсинг)
-                        import re
-                        price_match = re.search(r'(\d+[,.]\d+)</span>\s*руб', html)
-                        
-                        if price_match:
-                            price_str = price_match.group(1).replace(',', '.')
-                            return {'price': float(price_str), 'source': 'finam_web'}
-            
-            # Fallback: Finam Trade API
-            url = f"https://trade-api.finam.ru/public/api/v1/securities/{ticker}/quotes"
-            headers = {
-                'X-Api-Key': self.api_token,
-                'Accept': 'application/json'
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=10) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if data.get('status') == 'Ok':
-                            quotes = data.get('data', {}).get('quotes', [])
-                            if quotes:
-                                last_price = quotes[0].get('last')
-                                if last_price:
-                                    return {'price': last_price, 'source': 'finam_api'}
-            
-            return None
-            
-        except Exception as e:
-            logger.debug(f"   ⚠️ Finam price для {ticker}: {str(e)[:50]}")
-            return None
+    """Получение текущей цены с Finam API (исправленный)"""
+    finam_ticker = self.ticker_mapping.get(ticker.upper())
+    if not finam_ticker:
+        return None
+    
+    try:
+        # Используем Trade API Finam с Bearer токеном
+        url = f"https://trade-api.finam.ru/public/api/v1/securities/{finam_ticker}/quotes"
+        
+        headers = {
+            'Authorization': f'Bearer {self.api_token}',  # ✅ ПРАВИЛЬНЫЙ ФОРМАТ
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    if data.get('status') == 'Ok':
+                        quotes = data.get('data', {}).get('quotes', [])
+                        if quotes:
+                            last_price = quotes[0].get('last')
+                            if last_price:
+                                logger.debug(f"   ✅ Finam цена {ticker}: {last_price}")
+                                return {'price': float(last_price), 'source': 'finam_api'}
+                
+                # Логируем ошибку
+                logger.error(f"   ❌ Finam API ошибка {response.status}: {await response.text()[:100]}")
+                return None
+                
+    except Exception as e:
+        logger.error(f"   ❌ Finam price ошибка для {ticker}: {str(e)[:100]}")
+        return None
     
     async def _get_finam_volume(self, ticker: str) -> Optional[Dict]:
         """Получение данных об объёмах"""
