@@ -9,44 +9,51 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ==================== GIGACHAT OAUTH 2.0 КЛАСС ====================
+# ==================== GIGACHAT OAUTH 2.0 КЛАСС (ИСПРАВЛЕННЫЙ) ====================
 class GigaChatAuth:
-    """Класс для авторизации в GigaChat API через Client ID (OAuth 2.0)"""
+    """Класс для авторизации в GigaChat API через OAuth 2.0"""
     
-    def __init__(self, client_id: str, scope: str = "GIGACHAT_API_PERS"):
+    def __init__(self, client_id: str, client_secret: str, scope: str = "GIGACHAT_API_PERS"):
         self.client_id = client_id
+        self.client_secret = client_secret  # ← ДОБАВЛЯЕМ
         self.scope = scope
         self.access_token = None
         self.token_expiry = 0
         
     async def get_access_token(self) -> Optional[str]:
-        """Получение access token через OAuth 2.0"""
+        """Получение access token через OAuth 2.0 (ИСПРАВЛЕННЫЙ)"""
         # Если токен ещё действителен (с запасом 60 секунд)
         if self.access_token and time.time() < self.token_expiry - 60:
             return self.access_token
         
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         
+        # ВАЖНО: правильные заголовки
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
-            'RqUID': '6f0b1291-c7f3-434c-9a4c-8344d4f34364',  # Уникальный ID запроса
-            'Authorization': f'Basic {self.client_id}'
+            'RqUID': str(uuid.uuid4()),  # Генерируем уникальный ID для каждого запроса
+            # УБИРАЕМ Authorization header из здесь!
         }
         
-        payload = {'scope': self.scope}
+        # ПРАВИЛЬНЫЕ данные для OAuth 2.0 Client Credentials
+        payload = {
+            'scope': self.scope,
+            'grant_type': 'client_credentials',
+            'client_id': self.client_id,
+            'client_secret': self.client_secret
+        }
         
         try:
             logger.info("🔑 Запрашиваю новый токен GigaChat...")
             
-            # ВАЖНО: отключаем SSL проверку для этого endpoint
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 response = await client.post(url, headers=headers, data=payload)
                 
                 if response.status_code == 200:
                     data = response.json()
                     self.access_token = data.get('access_token')
-                    expires_in = data.get('expires_in', 1800)  # 30 минут по умолчанию
+                    expires_in = data.get('expires_in', 1800)
                     
                     self.token_expiry = time.time() + expires_in
                     
@@ -55,6 +62,11 @@ class GigaChatAuth:
                 else:
                     error_msg = response.text[:200]
                     logger.error(f"❌ GigaChat auth ошибка {response.status_code}: {error_msg}")
+                    
+                    # Детальный лог для отладки
+                    logger.debug(f"   Request URL: {url}")
+                    logger.debug(f"   Client ID: {self.client_id[:8]}...")
+                    logger.debug(f"   Client Secret: {'*' * len(self.client_secret) if self.client_secret else 'NOT SET'}")
                     return None
                     
         except httpx.TimeoutException:
@@ -64,24 +76,27 @@ class GigaChatAuth:
             logger.error(f"❌ Ошибка получения токена GigaChat: {str(e)[:100]}")
             return None
 
-# ==================== ОСНОВНОЙ NLP КЛАСС ====================
+# ==================== ОБНОВЛЯЕМ ИНИЦИАЛИЗАЦИЮ NLP ENGINE ====================
 class NlpEngine:
     """Гибридный ИИ-движок с поддержкой GigaChat и OpenRouter"""
     
     def __init__(self):
         logger.info("🔧 Инициализация гибридного NLP-движка...")
         
-        # ========== ИНИЦИАЛИЗАЦИЯ GIGACHAT OAUTH ==========
-        gigachat_client_id = os.getenv('GIGACHAT_CLIENT_ID')  # 019ac4e1-9416-7c5b-8722-fd5b09d85848
+        # ========== ИНИЦИАЛИЗАЦИЯ GIGACHAT OAUTH (ИСПРАВЛЕННО) ==========
+        gigachat_client_id = os.getenv('GIGACHAT_CLIENT_ID')
+        gigachat_client_secret = os.getenv('GIGACHAT_CLIENT_SECRET')  # ← ДОБАВЛЯЕМ
         gigachat_scope = os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
         
-        # Инициализируем только если есть Client ID
+        # Инициализируем только если есть Client ID И Client Secret
         self.gigachat_auth = None
-        if gigachat_client_id:
-            self.gigachat_auth = GigaChatAuth(gigachat_client_id, gigachat_scope)
+        if gigachat_client_id and gigachat_client_secret:
+            self.gigachat_auth = GigaChatAuth(gigachat_client_id, gigachat_client_secret, gigachat_scope)
             logger.info(f"🔑 GigaChat OAuth настроен (Client ID: {gigachat_client_id[:8]}...)")
         else:
-            logger.warning("⚠️ GIGACHAT_CLIENT_ID не найден, GigaChat отключен")
+            logger.warning("⚠️ GIGACHAT_CLIENT_ID или GIGACHAT_CLIENT_SECRET не найдены, GigaChat отключен")
+        
+        # ========== ОСТАВЛЯЕМ ОСТАЛЬНОЙ КОД БЕЗ ИЗМЕНЕНИЙ ==========
         
         # ========== КОНФИГУРАЦИЯ ПРОВАЙДЕРОВ ==========
         self.providers = {
