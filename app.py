@@ -1260,6 +1260,45 @@ async def debug_prefilter():
         "prefilter_stats": news_prefilter.get_filter_stats(all_news[:10])
     })
 
+@app.route('/check_gigachat')
+def check_gigachat():
+    """Проверка настроек GigaChat"""
+    import os
+    import base64
+    
+    client_id = os.getenv('GIGACHAT_CLIENT_ID')
+    client_secret = os.getenv('GIGACHAT_CLIENT_SECRET')
+    scope = os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
+    
+    result = {
+        'client_id_exists': bool(client_id),
+        'client_id_length': len(client_id) if client_id else 0,
+        'client_secret_exists': bool(client_secret),
+        'client_secret_length': len(client_secret) if client_secret else 0,
+        'scope': scope,
+        'problem': None
+    }
+    
+    # Проверки
+    if not client_id or not client_secret:
+        result['problem'] = 'Missing client_id or client_secret'
+    elif len(client_id) < 5 or len(client_secret) < 5:
+        result['problem'] = 'client_id or client_secret too short'
+    elif 'GIGACHAT_API_PERS' not in scope:
+        result['problem'] = f'Wrong scope: {scope}, should be GIGACHAT_API_PERS'
+    else:
+        # Проверяем base64
+        try:
+            auth_string = f"{client_id}:{client_secret}"
+            auth_base64 = base64.b64encode(auth_string.encode()).decode()
+            result['base64_first_30'] = auth_base64[:30]
+            result['base64_length'] = len(auth_base64)
+            result['problem'] = 'Credentials seem valid'
+        except Exception as e:
+            result['problem'] = f'Base64 error: {str(e)}'
+    
+    return jsonify(result)
+
 if __name__ == '__main__':
     # Запуск планировщика
     schedule_tasks()
