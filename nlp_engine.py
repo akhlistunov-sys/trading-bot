@@ -1,4 +1,4 @@
-# nlp_engine.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# nlp_engine.py - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ
 import logging
 import json
 import os
@@ -7,8 +7,10 @@ import httpx
 import time
 import uuid
 import base64
+import ssl
 from datetime import datetime
 from typing import Dict, List, Optional
+import certifi
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,10 @@ class GigaChatAuth:
         self.access_token = None
         self.token_expiry = 0
         
+        # Base64 кодирование client_id:client_secret
+        auth_string = f"{self.client_id}:{self.client_secret}"
+        self.auth_base64 = base64.b64encode(auth_string.encode()).decode()
+        
     async def get_access_token(self) -> Optional[str]:
         """Получение access token через OAuth 2.0 Basic auth"""
         if self.access_token and time.time() < self.token_expiry - 60:
@@ -30,36 +36,67 @@ class GigaChatAuth:
         
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         
-        # Basic auth: base64(client_id:client_secret)
-        auth_string = f"{self.client_id}:{self.client_secret}"
-        auth_base64 = base64.b64encode(auth_string.encode()).decode()
+        # ОБЯЗАТЕЛЬНЫЙ RqUID (uuid4)
+        rquid = str(uuid.uuid4())
         
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
-            'RqUID': str(uuid.uuid4()),
-            'Authorization': f'Basic {auth_base64}'
+            'RqUID': rquid,  # ОБЯЗАТЕЛЬНЫЙ ЗАГОЛОВОК
+            'Authorization': f'Basic {self.auth_base64}'
         }
         
         payload = {
             'scope': self.scope
-            # НЕ нужно grant_type, client_id, client_secret - они в Basic auth
         }
         
         try:
-            logger.info("🔑 Запрашиваю новый токен GigaChat (Basic auth)...")
+            logger.info(f"🔑 Запрашиваю токен GigaChat (RqUID: {rquid[:8]}...)")
             
-            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            # Создаем SSL контекст с сертификатом Sber
+            ssl_context = ssl.create_default_context()
+            
+            # Пробуем загрузить сертификат Sber
+            cert_paths = [
+                'sber_root.crt',
+                '/etc/ssl/certs/sberbank-root-ca.pem',
+                '/usr/local/share/ca-certificates/sberbank.crt'
+            ]
+            
+            cert_loaded = False
+            for cert_path in cert_paths:
+                if os.path.exists(cert_path):
+                    try:
+                        ssl_context.load_verify_locations(cafile=cert_path)
+                        logger.info(f"✅ Загружен сертификат Sber: {cert_path}")
+                        cert_loaded = True
+                        break
+                    except Exception as e:
+                        logger.debug(f"⚠️ Не удалось загрузить сертификат {cert_path}: {e}")
+            
+            # Если сертификат не найден, используем системные
+            if not cert_loaded:
+                ssl_context.load_verify_locations(cafile=certifi.where())
+                logger.info("⚠️ Использую системные сертификаты")
+            
+            async with httpx.AsyncClient(
+                timeout=30.0,
+                verify=ssl_context  # ПРАВИЛЬНЫЙ SSL КОНТЕКСТ
+            ) as client:
                 response = await client.post(url, headers=headers, data=payload)
                 
                 if response.status_code == 200:
                     data = response.json()
                     self.access_token = data.get('access_token')
-                    expires_in = data.get('expires_in', 1800)
+                    expires_at = data.get('expires_at', 0)
                     
-                    self.token_expiry = time.time() + expires_in
+                    # expires_at в миллисекундах, конвертируем в секунды
+                    if expires_at > 1000000000000:  # Если в миллисекундах
+                        self.token_expiry = expires_at / 1000
+                    else:
+                        self.token_expiry = time.time() + 1800  # 30 минут по умолчанию
                     
-                    logger.info(f"✅ GigaChat: получен новый access token")
+                    logger.info(f"✅ GigaChat: получен токен (действует до: {datetime.fromtimestamp(self.token_expiry).strftime('%H:%M:%S')})")
                     return self.access_token
                 else:
                     logger.error(f"❌ GigaChat auth ошибка {response.status_code}: {response.text[:100]}")
@@ -83,7 +120,7 @@ class NlpEngine:
         self.gigachat_auth = None
         if gigachat_client_id and gigachat_client_secret:
             self.gigachat_auth = GigaChatAuth(gigachat_client_id, gigachat_client_secret, gigachat_scope)
-            logger.info(f"🔑 GigaChat OAuth настроен (Basic auth)")
+            logger.info(f"🔑 GigaChat OAuth настроен (Client ID: {gigachat_client_id[:8]}...)")
         else:
             logger.warning("⚠️ GigaChat отключен: нет Client ID или Client Secret")
         
@@ -140,7 +177,7 @@ class NlpEngine:
         content = news_item.get('content', '') or description[:300]
         
         if provider == 'gigachat':
-            # Промпт для GigaChat
+            # Промпт для GigaChat (ИСПРАВЛЕННЫЙ - правильная модель)
             prompt_text = f"""Анализируй финансовую новость для трейдинга на российском рынке.
 
 Новость: {title}
@@ -165,10 +202,11 @@ class NlpEngine:
 Только JSON, никакого текста!"""
             
             return {
-                "model": "GigaChat",
+                "model": "GigaChat-2",  # ИСПРАВЛЕНО: правильное название модели
                 "messages": [{"role": "user", "content": prompt_text}],
                 "temperature": 0.1,
-                "max_tokens": 500
+                "max_tokens": 500,
+                "stream": False
             }
         else:
             # Промпт для OpenRouter (разные модели)
@@ -189,7 +227,7 @@ class NlpEngine:
             }
     
     async def _make_gigachat_request(self, prompt_data: Dict) -> Optional[Dict]:
-        """Запрос к GigaChat API"""
+        """Запрос к GigaChat API (ИСПРАВЛЕННЫЙ - правильный SSL)"""
         if not self.gigachat_auth:
             return None
         
@@ -202,11 +240,38 @@ class NlpEngine:
         headers = {
             'Authorization': f'Bearer {access_token}',
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'X-Request-ID': str(uuid.uuid4())  # Добавляем для логирования
         }
         
         try:
-            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            # Создаем SSL контекст
+            ssl_context = ssl.create_default_context()
+            
+            # Пробуем загрузить сертификат Sber
+            cert_paths = [
+                'sber_root.crt',
+                '/etc/ssl/certs/sberbank-root-ca.pem'
+            ]
+            
+            cert_loaded = False
+            for cert_path in cert_paths:
+                if os.path.exists(cert_path):
+                    try:
+                        ssl_context.load_verify_locations(cafile=cert_path)
+                        cert_loaded = True
+                        break
+                    except:
+                        pass
+            
+            # Если сертификат не найден, используем системные
+            if not cert_loaded:
+                ssl_context.load_verify_locations(cafile=certifi.where())
+            
+            async with httpx.AsyncClient(
+                timeout=30.0,
+                verify=ssl_context  # ПРАВИЛЬНЫЙ SSL КОНТЕКСТ
+            ) as client:
                 response = await client.post(url, headers=headers, json=prompt_data)
                 
                 if response.status_code == 200:
