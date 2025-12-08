@@ -1066,6 +1066,12 @@ def detailed_stats():
         }
     })
 
+@app.route('/test_moex')
+async def test_moex():
+    """Тест MOEX API"""
+    result = await tinkoff_executor.test_moex_connection()
+    return jsonify(result)
+
 @app.route('/analyze')
 def analyze_only():
     """Только анализ без торговли"""
