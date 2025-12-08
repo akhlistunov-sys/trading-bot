@@ -14,18 +14,17 @@ class NlpEngine:
         logger.info("🔧 Инициализация гибридного NLP-движка...")
         
         # Инициализация провайдеров
+        self.gigachat_auth = GigaChatAuth()  # Добавьте эту строку
         self.providers = {
             'gigachat': {
-                'url': 'https://gigachat.devices.sberbank.ru/api/v1/chat/completions',
-                'token': os.getenv('GIGACHATAPI'),
-                'models': ['GigaChat', 'GigaChat-Pro'],
-                'headers': {
-                    'Authorization': f'Bearer {os.getenv("GIGACHATAPI")}',
-                    'Content-Type': 'application/json'
-                },
-                'enabled': bool(os.getenv('GIGACHATAPI')),
-                'priority': 1  # Высший приоритет
-            },
+    'url': 'https://gigachat.devices.sberbank.ru/api/v1/chat/completions',
+    'client_id': os.getenv('GIGACHAT_CLIENT_ID'),  # Используем Client ID вместо токена
+    'scope': os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS'),
+    'models': ['GigaChat', 'GigaChat-Pro'],
+    'enabled': bool(os.getenv('GIGACHAT_CLIENT_ID')),  # Проверяем наличие Client ID
+    'priority': 1,
+    'auth': self.gigachat_auth  # Добавляем ссылку на auth объект
+}
             'openrouter': {
                 'url': 'https://openrouter.ai/api/v1/chat/completions',
                 'token': os.getenv('OPENROUTER_API_TOKEN'),
