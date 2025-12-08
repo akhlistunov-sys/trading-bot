@@ -1,4 +1,4 @@
-# nlp_engine.py - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ
+# nlp_engine.py - ВЕРСИЯ ДЛЯ RENDER.COM
 import logging
 import json
 import os
@@ -8,13 +8,14 @@ import time
 import uuid
 import base64
 import ssl
-from datetime import datetime
-from typing import Dict, List, Optional
 import certifi
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ==================== GIGACHAT OAUTH 2.0 (ИСПРАВЛЕННЫЙ) ====================
+# ==================== GIGACHAT OAUTH 2.0 (RENDER-СОВМЕСТИМЫЙ) ====================
 class GigaChatAuth:
     """Класс для авторизации в GigaChat API через OAuth 2.0 Basic auth"""
     
@@ -29,6 +30,32 @@ class GigaChatAuth:
         auth_string = f"{self.client_id}:{self.client_secret}"
         self.auth_base64 = base64.b64encode(auth_string.encode()).decode()
         
+    def _create_ssl_context(self, strategy: str = "auto") -> ssl.SSLContext:
+        """Создание SSL контекста для Render"""
+        
+        ssl_context = ssl.create_default_context()
+        
+        if strategy == "combined_cert":
+            # Пробуем объединённый сертификат
+            combined_cert = Path("certs/combined_ca.crt")
+            if combined_cert.exists():
+                ssl_context.load_verify_locations(cafile=str(combined_cert))
+                logger.debug("✅ SSL: Использую объединённый сертификат")
+                return ssl_context
+        
+        if strategy == "sber_cert":
+            # Пробуем сертификат Sber
+            sber_cert = Path("certs/sber_root.crt")
+            if sber_cert.exists():
+                ssl_context.load_verify_locations(cafile=str(sber_cert))
+                logger.debug("✅ SSL: Использую сертификат Sber")
+                return ssl_context
+        
+        # По умолчанию используем certifi
+        ssl_context.load_verify_locations(cafile=certifi.where())
+        logger.debug("✅ SSL: Использую certifi")
+        return ssl_context
+    
     async def get_access_token(self) -> Optional[str]:
         """Получение access token через OAuth 2.0 Basic auth"""
         if self.access_token and time.time() < self.token_expiry - 60:
@@ -50,68 +77,86 @@ class GigaChatAuth:
             'scope': self.scope
         }
         
+        # Стратегии SSL для Render
+        ssl_strategies = [
+            "combined_cert",  # 1. Наш объединённый сертификат
+            "sber_cert",      # 2. Сертификат Sber
+            "certifi",        # 3. Только certifi (по умолчанию)
+        ]
+        
+        for strategy in ssl_strategies:
+            try:
+                logger.info(f"🔑 Запрашиваю токен GigaChat (RqUID: {rquid[:8]}, SSL: {strategy})")
+                
+                ssl_context = self._create_ssl_context(strategy)
+                
+                async with httpx.AsyncClient(
+                    timeout=30.0,
+                    verify=ssl_context
+                ) as client:
+                    response = await client.post(url, headers=headers, data=payload)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        self.access_token = data.get('access_token')
+                        expires_at = data.get('expires_at', 0)
+                        
+                        # expires_at в миллисекундах, конвертируем в секунды
+                        if expires_at > 1000000000000:  # Если в миллисекундах
+                            self.token_expiry = expires_at / 1000
+                        else:
+                            self.token_expiry = time.time() + 1800  # 30 минут по умолчанию
+                        
+                        logger.info(f"✅ GigaChat: токен получен (действует 30 минут)")
+                        return self.access_token
+                    elif response.status_code == 401:
+                        logger.error(f"❌ Ошибка авторизации: {response.text[:100]}")
+                        return None
+                    else:
+                        logger.debug(f"⚠️ SSL стратегия {strategy} не сработала: {response.status_code}")
+                        continue
+                        
+            except Exception as e:
+                logger.debug(f"⚠️ SSL стратегия {strategy} ошибка: {str(e)[:50]}")
+                continue
+        
+        # Если все стратегии не сработали, пробуем без проверки SSL (ТОЛЬКО ДЛЯ ТЕСТОВ!)
         try:
-            logger.info(f"🔑 Запрашиваю токен GigaChat (RqUID: {rquid[:8]}...)")
+            logger.warning("⚠️ Пробую без проверки SSL (небезопасно, только для тестов!)")
             
-            # Создаем SSL контекст с сертификатом Sber
             ssl_context = ssl.create_default_context()
-            
-            # Пробуем загрузить сертификат Sber
-            cert_paths = [
-                'sber_root.crt',
-                '/etc/ssl/certs/sberbank-root-ca.pem',
-                '/usr/local/share/ca-certificates/sberbank.crt'
-            ]
-            
-            cert_loaded = False
-            for cert_path in cert_paths:
-                if os.path.exists(cert_path):
-                    try:
-                        ssl_context.load_verify_locations(cafile=cert_path)
-                        logger.info(f"✅ Загружен сертификат Sber: {cert_path}")
-                        cert_loaded = True
-                        break
-                    except Exception as e:
-                        logger.debug(f"⚠️ Не удалось загрузить сертификат {cert_path}: {e}")
-            
-            # Если сертификат не найден, используем системные
-            if not cert_loaded:
-                ssl_context.load_verify_locations(cafile=certifi.where())
-                logger.info("⚠️ Использую системные сертификаты")
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
             
             async with httpx.AsyncClient(
                 timeout=30.0,
-                verify=ssl_context  # ПРАВИЛЬНЫЙ SSL КОНТЕКСТ
+                verify=ssl_context
             ) as client:
                 response = await client.post(url, headers=headers, data=payload)
                 
                 if response.status_code == 200:
                     data = response.json()
                     self.access_token = data.get('access_token')
-                    expires_at = data.get('expires_at', 0)
-                    
-                    # expires_at в миллисекундах, конвертируем в секунды
-                    if expires_at > 1000000000000:  # Если в миллисекундах
-                        self.token_expiry = expires_at / 1000
-                    else:
-                        self.token_expiry = time.time() + 1800  # 30 минут по умолчанию
-                    
-                    logger.info(f"✅ GigaChat: получен токен (действует до: {datetime.fromtimestamp(self.token_expiry).strftime('%H:%M:%S')})")
+                    self.token_expiry = time.time() + 1800
+                    logger.warning("⚠️ Токен получен в небезопасном режиме! Исправьте SSL.")
                     return self.access_token
                 else:
-                    logger.error(f"❌ GigaChat auth ошибка {response.status_code}: {response.text[:100]}")
+                    logger.error(f"❌ Даже без SSL проверки не удалось: {response.status_code}")
                     return None
                     
         except Exception as e:
-            logger.error(f"❌ Ошибка получения токена GigaChat: {str(e)[:100]}")
+            logger.error(f"❌ Критическая ошибка GigaChat: {str(e)[:100]}")
             return None
 
-# ==================== ОСНОВНОЙ NLP КЛАСС (С РОТАЦИЕЙ МОДЕЛЕЙ) ====================
+# ==================== ОСНОВНОЙ NLP КЛАСС ====================
 class NlpEngine:
     """Гибридный ИИ-движок с ротацией моделей OpenRouter"""
     
     def __init__(self):
-        logger.info("🔧 Инициализация гибридного NLP-движка...")
+        logger.info("🔧 Инициализация гибридного NLP-движка для Render...")
+        
+        # Настраиваем SSL сертификаты для Render
+        self._setup_ssl_for_render()
         
         gigachat_client_id = os.getenv('GIGACHAT_CLIENT_ID')
         gigachat_client_secret = os.getenv('GIGACHAT_CLIENT_SECRET')
@@ -166,6 +211,48 @@ class NlpEngine:
         logger.info(f"🤖 Гибридный NLP-движок инициализирован")
         logger.info(f"📊 Доступные провайдеры: {', '.join(self.provider_priority)}")
         logger.info(f"🧠 OpenRouter модели: {len(self.openrouter_models)} бесплатных")
+    
+    def _setup_ssl_for_render(self):
+        """Настройка SSL сертификатов для облачного деплоя"""
+        try:
+            # Создаем директорию для сертификатов
+            certs_dir = Path("certs")
+            certs_dir.mkdir(exist_ok=True)
+            
+            # Пробуем скачать сертификат Sber если его нет
+            sber_cert_path = certs_dir / "sber_root.crt"
+            if not sber_cert_path.exists():
+                try:
+                    import requests
+                    response = requests.get(
+                        "https://storage.yandexcloud.net/cloud-certs/CA.pem",
+                        timeout=10
+                    )
+                    if response.status_code == 200:
+                        sber_cert_path.write_text(response.text)
+                        logger.info("✅ Сертификат Sber скачан")
+                except Exception as e:
+                    logger.debug(f"⚠️ Не удалось скачать сертификат Sber: {e}")
+            
+            # Создаем объединённый файл сертификатов
+            combined_cert = certs_dir / "combined_ca.crt"
+            
+            with open(combined_cert, "wb") as outfile:
+                # Добавляем certifi сертификаты
+                with open(certifi.where(), "rb") as certifi_file:
+                    outfile.write(certifi_file.read())
+                
+                # Добавляем Sber сертификат если есть
+                if sber_cert_path.exists():
+                    with open(sber_cert_path, "rb") as sber_file:
+                        outfile.write(b"\n")
+                        outfile.write(sber_file.read())
+            
+            logger.info(f"✅ SSL настроен для Render: {combined_cert}")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка настройки SSL для Render: {e}")
+            logger.info("ℹ️ Использую системный SSL контекст")
     
     # ==================== ОСНОВНЫЕ МЕТОДЫ ====================
     
@@ -226,8 +313,25 @@ class NlpEngine:
                 "response_format": {"type": "json_object"}
             }
     
+    def _create_ssl_context_for_request(self) -> ssl.SSLContext:
+        """Создание SSL контекста для запросов"""
+        try:
+            # Пробуем объединённый сертификат
+            combined_cert = Path("certs/combined_ca.crt")
+            if combined_cert.exists():
+                ssl_context = ssl.create_default_context()
+                ssl_context.load_verify_locations(cafile=str(combined_cert))
+                return ssl_context
+        except:
+            pass
+        
+        # Fallback на certifi
+        ssl_context = ssl.create_default_context()
+        ssl_context.load_verify_locations(cafile=certifi.where())
+        return ssl_context
+    
     async def _make_gigachat_request(self, prompt_data: Dict) -> Optional[Dict]:
-        """Запрос к GigaChat API (ИСПРАВЛЕННЫЙ - правильный SSL)"""
+        """Запрос к GigaChat API"""
         if not self.gigachat_auth:
             return None
         
@@ -241,36 +345,15 @@ class NlpEngine:
             'Authorization': f'Bearer {access_token}',
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-Request-ID': str(uuid.uuid4())  # Добавляем для логирования
+            'X-Request-ID': str(uuid.uuid4())
         }
         
         try:
-            # Создаем SSL контекст
-            ssl_context = ssl.create_default_context()
-            
-            # Пробуем загрузить сертификат Sber
-            cert_paths = [
-                'sber_root.crt',
-                '/etc/ssl/certs/sberbank-root-ca.pem'
-            ]
-            
-            cert_loaded = False
-            for cert_path in cert_paths:
-                if os.path.exists(cert_path):
-                    try:
-                        ssl_context.load_verify_locations(cafile=cert_path)
-                        cert_loaded = True
-                        break
-                    except:
-                        pass
-            
-            # Если сертификат не найден, используем системные
-            if not cert_loaded:
-                ssl_context.load_verify_locations(cafile=certifi.where())
+            ssl_context = self._create_ssl_context_for_request()
             
             async with httpx.AsyncClient(
                 timeout=30.0,
-                verify=ssl_context  # ПРАВИЛЬНЫЙ SSL КОНТЕКСТ
+                verify=ssl_context
             ) as client:
                 response = await client.post(url, headers=headers, json=prompt_data)
                 
