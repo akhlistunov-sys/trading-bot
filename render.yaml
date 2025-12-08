@@ -2,24 +2,19 @@ services:
   - type: web
     name: ai-news-trader
     env: python
-    region: frankfurt  # Ближе к России
+    region: frankfurt
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
+    autoDeploy: true
     envVars:
-      # ==================== СИСТЕМНЫЕ ПЕРЕМЕННЫЕ ====================
+      # ==================== СИСТЕМНЫЕ ====================
       - key: PYTHON_VERSION
         value: 3.9.18
       - key: PORT
         value: 10000
       
-      # Флаги компиляции для проблемных библиотек
-      - key: CFLAGS
-        value: -Wno-sign-compare -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-stringop-overflow -fno-wrapv
-      - key: CXXFLAGS
-        value: -Wno-sign-compare -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-stringop-overflow -fno-wrapv
-      
-      # ==================== РЕЖИМЫ РАБОТЫ ====================
+      # ==================== РЕЖИМ ====================
       - key: TRADING_MODE
         value: AGGRESSIVE_TEST
       - key: CHECK_INTERVAL_MINUTES
@@ -32,49 +27,37 @@ services:
         value: 1.5
       - key: TAKE_PROFIT_PCT
         value: 3.0
-      - key: TRAILING_START
-        value: 2.0
-      - key: TRAILING_STEP
-        value: 0.7
       - key: MAX_RISK_PER_TICKER
         value: 4.5
       - key: MAX_RISK_PER_SECTOR
         value: 12.0
       
-      # ==================== ПАРАМЕТРЫ АНАЛИЗА ====================
+      # ==================== АНАЛИЗ ====================
       - key: MIN_CONFIDENCE
         value: 0.6
       - key: MIN_IMPACT_SCORE
         value: 5
-      - key: BASE_POSITION_SIZE
-        value: 5.0
-      - key: BASE_STOP_LOSS
-        value: 2.0
       
-      # ==================== GIGACHAT API (СЕКРЕТЫ) ====================
+      # ==================== GIGACHAT (СЕКРЕТЫ) ====================
       - key: GIGACHAT_CLIENT_ID
-        sync: false  # Заполнить в Dashboard: 019ac4e1-9416-7c5b-8722-fd5b09d85848
+        sync: false
       - key: GIGACHAT_CLIENT_SECRET
-        sync: false  # Заполнить в Dashboard: полный ключ из кабинета
+        sync: false
       - key: GIGACHAT_SCOPE
         value: GIGACHAT_API_PERS
       
-      # ==================== OPENROUTER API (СЕКРЕТ) ====================
+      # ==================== OPENROUTER (СЕКРЕТ) ====================
       - key: OPENROUTER_API_TOKEN
-        sync: false  # Заполнить в Dashboard: sk-or-...
+        sync: false
       
-      # ==================== FINAM API (СЕКРЕТЫ) ====================
+      # ==================== FINAM (СЕКРЕТ) ====================
       - key: FINAM_API_TOKEN
-        sync: false  # Заполнить в Dashboard: bbae67bd-2578-4b00-84bb-f8423f17756d
+        sync: false
       - key: FINAM_CLIENT_ID
         value: 621971R9IP3
       
-      # ==================== ДОПОЛНИТЕЛЬНЫЕ API (опционально) ====================
+      # ==================== ДОПОЛНИТЕЛЬНЫЕ (опционально) ====================
       - key: NewsAPI
-        sync: false  # Заполнить если есть
+        sync: false
       - key: ZENSEPTAPI
-        sync: false  # Заполнить если есть
-      
-      # ==================== TINKOFF API (устаревшее, но оставляем) ====================
-      - key: TINKOFF_API_TOKEN
-        sync: false  # Можно оставить пустым
+        sync: false
