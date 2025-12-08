@@ -53,9 +53,9 @@ class TinkoffExecutor:
         logger.info(f"   Тикеров в маппинге: {len(self.ticker_mapping)}")
     
     async def get_price_from_finam(self, ticker: str) -> Optional[float]:
-    """Получение цены с Finam API"""
-    finam_ticker = self.ticker_mapping.get(ticker.upper())
-    if not finam_ticker:
+        """Получение цены с Finam API"""
+        finam_ticker = self.ticker_mapping.get(ticker.upper())
+        if not finam_ticker:
         return None
     # ... остальной код
     
