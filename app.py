@@ -1,3 +1,4 @@
+# app.py - ПОЛНЫЙ ОБНОВЛЁННЫЙ ФАЙЛ
 from flask import Flask, jsonify, render_template_string
 import datetime
 import time
@@ -20,6 +21,7 @@ loaded_confidence = os.getenv("MIN_CONFIDENCE", "NOT_FOUND")
 loaded_impact = os.getenv("MIN_IMPACT_SCORE", "NOT_FOUND")
 loaded_position = os.getenv("BASE_POSITION_SIZE", "NOT_FOUND")
 loaded_stop = os.getenv("BASE_STOP_LOSS", "NOT_FOUND")
+loaded_risk = os.getenv("RISK_PER_TRADE", "NOT_FOUND")
 
 # Инициализируем логирование сразу после загрузки переменных
 logging.basicConfig(
@@ -32,6 +34,7 @@ logger = logging.getLogger(__name__)
 # Логируем факт загрузки переменных
 logger.info("=" * 60)
 logger.info("🔧 ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ЗАГРУЖЕНЫ:")
+logger.info(f"   • RISK_PER_TRADE: {loaded_risk}")
 logger.info(f"   • MIN_CONFIDENCE: {loaded_confidence}")
 logger.info(f"   • MIN_IMPACT_SCORE: {loaded_impact}")
 logger.info(f"   • BASE_POSITION_SIZE: {loaded_position}")
@@ -45,7 +48,11 @@ from nlp_engine import NlpEngine
 from decision_engine import DecisionEngine
 from tinkoff_executor import TinkoffExecutor
 from virtual_portfolio import VirtualPortfolioPro
-from simple_analyzer import SimpleAnalyzer
+from enhanced_analyzer import EnhancedAnalyzer
+from news_prefilter import NewsPreFilter
+from finam_verifier import FinamVerifier
+from risk_manager import RiskManager
+from signal_pipeline import SignalPipeline
 
 app = Flask(__name__)
 
@@ -61,24 +68,43 @@ is_trading = False
 last_news_count = 0
 last_signals = []
 system_stats = {}
+pipeline_stats = {}
 start_time = datetime.datetime.now()
 
-# Инициализация модулей
+# Инициализация всех модулей
+logger.info("🔧 Инициализация всех модулей...")
+
 news_fetcher = NewsFetcher()
 nlp_engine = NlpEngine()
-decision_engine = DecisionEngine()
+finam_verifier = FinamVerifier()
+risk_manager = RiskManager(initial_capital=100000)
+enhanced_analyzer = EnhancedAnalyzer()
+news_prefilter = NewsPreFilter()
 tinkoff_executor = TinkoffExecutor()
 virtual_portfolio = VirtualPortfolioPro(initial_capital=100000)
-simple_analyzer = SimpleAnalyzer()
 
-# HTML шаблон для светлого интерфейса (остается без изменений)
+# Создаём SignalPipeline
+signal_pipeline = SignalPipeline(
+    nlp_engine=nlp_engine,
+    finam_verifier=finam_verifier,
+    risk_manager=risk_manager,
+    enhanced_analyzer=enhanced_analyzer,
+    news_prefilter=news_prefilter
+)
+
+# DecisionEngine с интеграцией RiskManager
+decision_engine = DecisionEngine(risk_manager=risk_manager)
+
+logger.info("✅ Все модули инициализированы")
+
+# HTML шаблон для светлого интерфейса
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Новостной Трейдер</title>
+    <title>AI Новостной Трейдер v3.0</title>
     <meta http-equiv="refresh" content="30">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -323,6 +349,33 @@ HTML_TEMPLATE = """
             font-size: 1.2em;
             vertical-align: middle;
         }
+        
+        /* Дополнительные стили для pipeline */
+        .pipeline-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .pipeline-stat {
+            background: #e0e7ff;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+        
+        .pipeline-label {
+            font-size: 0.8rem;
+            color: #4f46e5;
+        }
+        
+        .pipeline-value {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #1e40af;
+        }
     </style>
 </head>
 <body>
@@ -331,10 +384,10 @@ HTML_TEMPLATE = """
         <div class="header">
             <h1>
                 <span class="icon">🤖</span> 
-                AI Новостной Трейдер "Sentiment Hunter"
+                AI Новостной Трейдер "Sentiment Hunter" v3.0
             </h1>
-            <p><strong>⚡ Режим:</strong> Агрессивное тестирование | Гибридный NLP-анализ</p>
-            <p><strong>🎯 Провайдеры:</strong> GigaChat + OpenRouter + SimpleAnalyzer</p>
+            <p><strong>⚡ Режим:</strong> Агрессивное тестирование | Signal Pipeline</p>
+            <p><strong>🎯 Архитектура:</strong> GigaChat + OpenRouter + Finam + Risk Management</p>
         </div>
         
         <!-- Основные метрики -->
@@ -357,6 +410,7 @@ HTML_TEMPLATE = """
                 </div>
                 <p><strong>🕒 Последняя торговля:</strong> {{ last_trading_time }}</p>
                 <p><strong>📈 Запросов к системе:</strong> {{ request_count }}</p>
+                <p><strong>🧠 Pipeline:</strong> {{ pipeline_efficiency }}% эффективность</p>
             </div>
             
             <div class="card">
@@ -379,6 +433,20 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
                 </div>
+                <div class="pipeline-stats">
+                    <div class="pipeline-stat">
+                        <div class="pipeline-label">Риск/сделку</div>
+                        <div class="pipeline-value">{{ risk_per_trade }}%</div>
+                    </div>
+                    <div class="pipeline-stat">
+                        <div class="pipeline-label">Стоп-лосс</div>
+                        <div class="pipeline-value">{{ stop_loss }}%</div>
+                    </div>
+                    <div class="pipeline-stat">
+                        <div class="pipeline-label">Тейк-профит</div>
+                        <div class="pipeline-value">{{ take_profit }}%</div>
+                    </div>
+                </div>
             </div>
             
             <div class="card">
@@ -399,8 +467,40 @@ HTML_TEMPLATE = """
                 </div>
                 <p><strong>🧠 Провайдер:</strong> {{ ai_provider }}</p>
                 <p><strong>✅ Источники:</strong> {{ sources_status }}</p>
+                <p><strong>🔧 Finam:</strong> {{ finam_status }}</p>
+                <p><strong>🎯 Отфильтровано:</strong> {{ filtered_percent }}% новостей</p>
             </div>
         </div>
+        
+        <!-- Pipeline статистика -->
+        {% if pipeline_stats %}
+        <div class="card">
+            <h3><span class="icon">⚙️</span> Pipeline статистика</h3>
+            <div class="pipeline-stats">
+                <div class="pipeline-stat">
+                    <div class="pipeline-label">Всего новостей</div>
+                    <div class="pipeline-value">{{ pipeline_stats.total_news }}</div>
+                </div>
+                <div class="pipeline-stat">
+                    <div class="pipeline-label">Отфильтровано</div>
+                    <div class="pipeline-value">{{ pipeline_stats.filtered_news }}</div>
+                </div>
+                <div class="pipeline-stat">
+                    <div class="pipeline-label">Проанализировано</div>
+                    <div class="pipeline-value">{{ pipeline_stats.analyzed_news }}</div>
+                </div>
+                <div class="pipeline-stat">
+                    <div class="pipeline-label">Сигналов</div>
+                    <div class="pipeline-value">{{ pipeline_stats.verified_signals }}</div>
+                </div>
+            </div>
+            <p style="margin-top: 10px;">
+                <small>Эффективность: {{ pipeline_stats.efficiency }}% | 
+                Filter rate: {{ pipeline_stats.filter_rate_percent }}% | 
+                Signal rate: {{ pipeline_stats.signal_rate_percent }}%</small>
+            </p>
+        </div>
+        {% endif %}
         
         <!-- Последние сигналы -->
         {% if last_signals %}
@@ -415,15 +515,19 @@ HTML_TEMPLATE = """
                                 {% if signal.action == 'BUY' %}🟢{% else %}🔴{% endif %}
                             </span>
                             {{ signal.action }} {{ signal.ticker }}
+                            <span style="font-size: 0.8rem; color: #64748b; margin-left: 10px;">
+                                x{{ signal.position_size }}
+                            </span>
                         </div>
                         <div class="signal-confidence">
                             Confidence: {{ "%.2f"|format(signal.confidence) }}
                         </div>
                     </div>
-                    <p><strong>Событие:</strong> {{ signal.event_type }}</p>
-                    <p><strong>Важность (Impact):</strong> {{ signal.impact_score }}/10</p>
-                    <p><strong>Провайдер:</strong> {{ signal.ai_provider|default('simple') }}</p>
+                    <p><strong>Событие:</strong> {{ signal.event_type|capitalize }}</p>
+                    <p><strong>Тональность:</strong> {{ signal.sentiment }} (Impact: {{ signal.impact_score }}/10)</p>
+                    <p><strong>Провайдер:</strong> {{ signal.ai_provider|default('simple')|upper }}</p>
                     <p><strong>Причина:</strong> {{ signal.reason[:100] }}{% if signal.reason|length > 100 %}...{% endif %}</p>
+                    <p><strong>💰 Стоимость:</strong> {{ "%.0f"|format(signal.position_value) }} руб.</p>
                     <p><small><strong>Время:</strong> {{ signal.timestamp }}</small></p>
                 </div>
                 {% endfor %}
@@ -453,19 +557,19 @@ HTML_TEMPLATE = """
                 <a href="/test_providers" class="btn btn-warning">
                     <span class="icon">🔧</span> Тест провайдеров
                 </a>
+                <a href="/test_pipeline" class="btn btn-success">
+                    <span class="icon">⚙️</span> Тест Pipeline
+                </a>
                 <a href="/env" class="btn btn-danger">
                     <span class="icon">⚙️</span> Переменные окружения
-                </a>
-                <a href="/debug_auth" class="btn btn-warning">
-                    <span class="icon">🔑</span> Тест авторизации
                 </a>
             </div>
         </div>
         
         <!-- Футер -->
         <div class="footer">
-            <p><em>🤖 AI Новостной Трейдер "Sentiment Hunter" | Гибридный анализ: GigaChat + OpenRouter + SimpleAnalyzer</em></p>
-            <p>Версия 3.0 | Система работает на базе нескольких ИИ-провайдеров</p>
+            <p><em>🤖 AI Новостной Трейдер "Sentiment Hunter" v3.0 | Signal Pipeline Architecture</em></p>
+            <p>Версия 3.0 | Риск-менеджмент: 1.5% на сделку, -1.5% стоп, +3.0% тейк</p>
         </div>
     </div>
 </body>
@@ -473,10 +577,10 @@ HTML_TEMPLATE = """
 """
 
 async def trading_session_async(force_mode=False):
-    """Основная торговая сессия"""
+    """Основная торговая сессия с SignalPipeline"""
     global last_trading_time, session_count, trade_history
     global total_virtual_profit, total_virtual_return, is_trading
-    global bot_status, last_news_count, last_signals, system_stats
+    global bot_status, last_news_count, last_signals, system_stats, pipeline_stats
     
     if is_trading:
         logger.info("⏸️ Торговая сессия уже выполняется")
@@ -489,6 +593,7 @@ async def trading_session_async(force_mode=False):
     
     mode_label = "🚀 ПРИНУДИТЕЛЬНАЯ" if force_mode else "🤖 РАСПИСАНИЕ"
     logger.info(f"{mode_label} ТОРГОВАЯ СЕССИЯ #{session_count} - {current_time}")
+    logger.info("=" * 60)
     
     try:
         # 1. Сбор новостей
@@ -504,59 +609,28 @@ async def trading_session_async(force_mode=False):
         
         logger.info(f"✅ Получено {len(all_news)} новостей")
         
-        # 2. NLP-анализ новостей
-        logger.info("🧠 Гибридный анализ новостей...")
-        analyzed_news = []
+        # 2. Обработка через SignalPipeline
+        logger.info("⚙️ Обработка через SignalPipeline...")
+        signals = await signal_pipeline.process_news_batch(all_news)
         
-        # ВРЕМЕННО: Упрощаем для тестирования - анализируем больше новостей
-        for news_item in all_news[:10]:  # Увеличили с 8 до 10
-            # Сначала пробуем ИИ-анализ
-            analysis = await nlp_engine.analyze_news(news_item)
-            
-            if not analysis:
-                # Если ИИ не сработал, используем простой анализатор
-                logger.info("🔄 Использую SimpleAnalyzer как fallback")
-                simple_analysis = simple_analyzer.analyze_news(news_item)
-                if simple_analysis:
-                    # Добавляем метаданные
-                    simple_analysis.update({
-                        'news_id': news_item.get('id', ''),
-                        'news_title': news_item.get('title', ''),
-                        'news_source': news_item.get('source', ''),
-                        'analysis_timestamp': datetime.datetime.now().isoformat(),
-                        'ai_provider': 'simple',
-                        'confidence': simple_analysis.get('confidence', 0.6)
-                    })
-                    analysis = simple_analysis
-            
-            if analysis:
-                analyzed_news.append(analysis)
-        
-        logger.info(f"✅ Проанализировано {len(analyzed_news)} новостей")
-        
-        # 3. Принятие решений
-        logger.info("🎯 Формирование торговых решений...")
-        all_signals = []
-        
-        for news_analysis in analyzed_news:
-            signals = decision_engine.generate_signals(news_analysis)
-            if signals:
-                all_signals.extend(signals)
+        # Сохраняем статистику pipeline
+        pipeline_stats = signal_pipeline.get_stats()
         
         # Сохраняем последние сигналы для отображения
-        last_signals = all_signals[:10]
+        last_signals = signals[:10]
         
-        if not all_signals:
+        if not signals:
             logger.info("ℹ️ Нет торговых сигналов для выполнения")
             bot_status = f"🤖 Нет сигналов | Сессия #{session_count}"
             is_trading = False
             return
         
-        logger.info(f"✅ Сформировано {len(all_signals)} сигналов")
+        logger.info(f"✅ Сформировано {len(signals)} сигналов")
         
-        # 4. Получение текущих цен
+        # 3. Получение текущих цен
+        logger.info("💰 Получение текущих цен...")
         current_prices = {}
-        tickers_to_check = list(set(signal['ticker'] for signal in all_signals))
+        tickers_to_check = list(set(signal['ticker'] for signal in signals))
         
         for ticker in tickers_to_check:
             price = await tinkoff_executor.get_current_price(ticker)
@@ -568,20 +642,22 @@ async def trading_session_async(force_mode=False):
             is_trading = False
             return
         
+        # 4. Обновление позиций в RiskManager
+        risk_manager.update_positions(virtual_portfolio.positions)
+        
         # 5. Проверка условий выхода из позиций
         exit_signals = virtual_portfolio.check_exit_conditions(current_prices)
         
         # 6. Исполнение сделок (виртуальных)
-        all_trades = all_signals + exit_signals
+        all_trades = signals + exit_signals
         executed_trades = []
         
         for signal in all_trades:
-            ticker = signal['ticker']
-            if ticker in current_prices:
-                trade_result = virtual_portfolio.execute_trade(signal, current_prices[ticker])
+            trade_result = virtual_portfolio.execute_trade(signal, current_prices.get(signal['ticker']))
+            if trade_result:
                 executed_trades.append(trade_result)
         
-        # 7. Обновление статистики
+        # 7. Обновление истории и статистики
         trade_history.extend(executed_trades)
         
         # Расчет прибыли
@@ -595,21 +671,31 @@ async def trading_session_async(force_mode=False):
         # Обновление статистики системы
         system_stats = {
             'total_news_processed': last_news_count,
-            'total_signals_generated': len(all_signals),
+            'total_signals_generated': len(signals),
             'total_trades_executed': len(executed_trades),
             'session_profit': session_profit,
             'nlp_stats': nlp_engine.get_stats(),
             'decision_engine_stats': decision_engine.get_stats(),
-            'virtual_portfolio_stats': virtual_portfolio.get_stats()
+            'virtual_portfolio_stats': virtual_portfolio.get_stats(),
+            'pipeline_stats': pipeline_stats,
+            'finam_verifier_stats': {
+                'liquid_tickers_count': len(finam_verifier.liquid_tickers)
+            }
         }
         
         # Обновление статуса
         current_provider = nlp_engine.get_current_provider()
-        bot_status = f"🤖 AI Трейдер | {current_provider.upper()} | ROI: {total_virtual_return:+.1f}% | Сигналов: {len(all_signals)}"
+        risk_stats = risk_manager.get_risk_stats()
+        
+        bot_status = (f"🤖 AI Трейдер v3.0 | {current_provider.upper()} | "
+                     f"ROI: {total_virtual_return:+.1f}% | "
+                     f"Сигналов: {len(signals)} | "
+                     f"Риск: {risk_stats['risk_per_trade']}%")
         
         logger.info(f"💰 СЕССИЯ #{session_count} ЗАВЕРШЕНА")
         logger.info(f"💎 Портфель: {total_value:.2f} руб. ({total_virtual_return:+.2f}%)")
         logger.info(f"🎯 Прибыль за сессию: {session_profit:+.2f} руб.")
+        logger.info(f"📊 Pipeline: {pipeline_stats.get('efficiency', 0):.1f}% эффективность")
         
         if executed_trades:
             for trade in executed_trades:
@@ -620,6 +706,8 @@ async def trading_session_async(force_mode=False):
         
     except Exception as e:
         logger.error(f"❌ Ошибка в торговой сессии: {str(e)[:200]}")
+        import traceback
+        logger.error(f"Трейсбек: {traceback.format_exc()[:300]}")
         bot_status = f"🤖 Ошибка: {str(e)[:50]}..."
     finally:
         is_trading = False
@@ -638,14 +726,14 @@ def schedule_tasks():
     check_interval = int(os.getenv("CHECK_INTERVAL_MINUTES", "15"))
     
     if check_interval <= 15:
-        # Частые проверки в торговые часы
-        for hour in range(10, 20):  # с 10:00 до 19:00
+        # Частые проверки в торговые часы (10:00-18:45 МСК)
+        for hour in range(10, 19):  # с 10:00 до 18:00
             schedule.every().day.at(f"{hour:02d}:00").do(lambda: run_trading_session(False))
             if check_interval <= 15:
                 schedule.every().day.at(f"{hour:02d}:15").do(lambda: run_trading_session(False))
                 schedule.every().day.at(f"{hour:02d}:30").do(lambda: run_trading_session(False))
                 schedule.every().day.at(f"{hour:02d}:45").do(lambda: run_trading_session(False))
-        logger.info(f"📅 Планировщик настроен: каждые 15 минут с 10:00 до 19:45")
+        logger.info(f"📅 Планировщик настроен: каждые 15 минут с 10:00 до 18:45")
     else:
         schedule.every(check_interval).minutes.do(lambda: run_trading_session(False))
         logger.info(f"📅 Планировщик настроен: каждые {check_interval} минут")
@@ -656,54 +744,74 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(1)
 
-# ==================== НОВЫЕ ТЕСТОВЫЕ ЭНДПОИНТЫ ====================
+# ==================== НОВЫЕ ЭНДПОИНТЫ ====================
 
-@app.route('/debug_auth')
-async def debug_auth():
-    """Отладочная страница для проверки авторизации провайдеров"""
-    
-    env_vars = {
-        'GIGACHAT_CLIENT_ID': os.getenv('GIGACHAT_CLIENT_ID', 'NOT SET'),
-        'GIGACHAT_CLIENT_SECRET': os.getenv('GIGACHAT_CLIENT_SECRET', 'NOT SET'),
-        'GIGACHAT_SCOPE': os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS'),
-        'OPENROUTER_API_TOKEN': os.getenv('OPENROUTER_API_TOKEN', 'NOT SET')[:20] + '...' if os.getenv('OPENROUTER_API_TOKEN') else 'NOT SET'
-    }
-    
-    # Проверяем GigaChat
-    gigachat_status = {
-        'configured': bool(os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET')),
-        'status': '❌ Не настроен'
-    }
-    
-    if gigachat_status['configured']:
-        try:
-            from nlp_engine import GigaChatAuth
-            test_auth = GigaChatAuth(
-                client_id=os.getenv('GIGACHAT_CLIENT_ID'),
-                client_secret=os.getenv('GIGACHAT_CLIENT_SECRET'),
-                scope=os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
-            )
-            
-            token = await test_auth.get_access_token()
-            gigachat_status['status'] = '✅ Настроен' if token else '❌ Ошибка авторизации'
-            gigachat_status['token_received'] = bool(token)
-            gigachat_status['token_preview'] = f"{token[:20]}..." if token else None
-            
-        except Exception as e:
-            gigachat_status['status'] = f'❌ Ошибка: {str(e)[:50]}'
-    
-    # Проверяем OpenRouter
-    openrouter_status = {
-        'configured': bool(os.getenv('OPENROUTER_API_TOKEN')),
-        'status': '✅ Настроен' if os.getenv('OPENROUTER_API_TOKEN') else '❌ Не настроен'
-    }
-    
-    return jsonify({
-        'environment_variables': env_vars,
-        'gigachat_status': gigachat_status,
-        'openrouter_status': openrouter_status,
-        'timestamp': datetime.datetime.now().isoformat()
-    })
+@app.route('/test_pipeline')
+async def test_pipeline():
+    """Тест SignalPipeline"""
+    try:
+        # Тестовая новость
+        test_news = {
+            'id': 'test_001',
+            'title': 'Сбербанк рекомендовал увеличение дивидендов на 20%',
+            'description': 'Совет директоров Сбербанка рекомендовал увеличение дивидендов',
+            'content': 'Сбербанк увеличивает дивиденды, что положительно скажется на котировках',
+            'source': 'test',
+            'published_at': datetime.datetime.now().isoformat()
+        }
+        
+        # Обработка через pipeline
+        signal = await signal_pipeline._process_single_news(test_news)
+        
+        return jsonify({
+            'pipeline_test': 'success' if signal else 'no_signal',
+            'test_news': test_news['title'],
+            'signal': signal,
+            'pipeline_stats': signal_pipeline.get_stats(),
+            'timestamp': datetime.datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'pipeline_test': 'error',
+            'error': str(e),
+            'timestamp': datetime.datetime.now().isoformat()
+        })
+
+@app.route('/test_finam')
+async def test_finam():
+    """Тест Finam API"""
+    try:
+        test_ticker = 'SBER'
+        
+        # Тест цены
+        price = await tinkoff_executor.get_price_from_finam(test_ticker)
+        
+        # Тест верификации
+        test_analysis = {
+            'tickers': [test_ticker],
+            'event_type': 'dividend',
+            'sentiment': 'positive',
+            'impact_score': 7
+        }
+        
+        verification = await finam_verifier.verify_signal(test_analysis)
+        
+        return jsonify({
+            'finam_test': 'success',
+            'test_ticker': test_ticker,
+            'price_from_finam': price,
+            'verification_result': verification,
+            'liquid_tickers_count': len(finam_verifier.liquid_tickers),
+            'timestamp': datetime.datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'finam_test': 'error',
+            'error': str(e),
+            'timestamp': datetime.datetime.now().isoformat()
+        })
 
 @app.route('/test_gigachat_fixed')
 async def test_gigachat_fixed():
@@ -716,155 +824,26 @@ async def test_gigachat_fixed():
         })
     
     try:
-        # Импортируем нужные модули
-        import httpx
-        from nlp_engine import GigaChatAuth
-        
-        # Создаем тестовый запрос
-        test_prompt = {
-            "model": "GigaChat",
-            "messages": [
-                {
-                    "role": "system", 
-                    "content": "Ты помощник. Отвечай ТОЛЬКО JSON: {'test': 'success'}"
-                },
-                {
-                    "role": "user", 
-                    "content": "Это тест. Верни {'test': 'success'}"
-                }
-            ],
-            "temperature": 0.1,
-            "max_tokens": 50
+        # Тест напрямую через nlp_engine
+        test_news = {
+            'id': 'giga_test',
+            'title': 'Тест GigaChat API',
+            'description': 'Тестирование работы GigaChat'
         }
         
-        # Создаем временный auth объект
-        test_auth = GigaChatAuth(
-            client_id=os.getenv('GIGACHAT_CLIENT_ID'),
-            client_secret=os.getenv('GIGACHAT_CLIENT_SECRET'),
-            scope=os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
-        )
+        analysis = await nlp_engine.analyze_news(test_news)
         
-        # Получаем токен
-        token = await test_auth.get_access_token()
-        if not token:
-            return jsonify({
-                "status": "token_error",
-                "message": "Не удалось получить токен GigaChat"
-            })
-        
-        # Делаем запрос
-        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
-        headers = {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
-        }
-        
-        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-            response = await client.post(url, headers=headers, json=test_prompt)
-            
-            result = {
-                "status": "success" if response.status_code == 200 else "error",
-                "response_code": response.status_code,
-                "token_preview": f"{token[:20]}..." if token else "No token",
-                "timestamp": datetime.datetime.now().isoformat()
-            }
-            
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    result["response"] = data.get("choices", [{}])[0].get("message", {}).get("content", "Пустой ответ")
-                except:
-                    result["response"] = "Не удалось распарсить JSON"
-            else:
-                result["error"] = response.text[:200]
-            
-            return jsonify(result)
-            
-    except Exception as e:
         return jsonify({
-            "status": "exception",
-            "error": str(e),
+            "status": "success" if analysis else "no_analysis",
+            "gigachat_configured": nlp_engine.providers['gigachat']['enabled'],
+            "analysis_result": analysis,
+            "nlp_stats": nlp_engine.get_stats(),
             "timestamp": datetime.datetime.now().isoformat()
         })
-
-@app.route('/test_openrouter_fixed')
-async def test_openrouter_fixed():
-    """Тест исправленного OpenRouter API"""
-    
-    if not os.getenv('OPENROUTER_API_TOKEN'):
-        return jsonify({"error": "OPENROUTER_API_TOKEN не настроен"})
-    
-    try:
-        import httpx
-        
-        # ОЧЕНЬ СТРОГИЙ промпт для теста
-        test_prompt = {
-            "model": "google/gemini-2.0-flash-exp:free",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You MUST output ONLY valid JSON. No other text. Example: {'test': 'openrouter_works'}"
-                },
-                {
-                    "role": "user", 
-                    "content": "Test. Return {'test': 'openrouter_works'}"
-                }
-            ],
-            "temperature": 0.1,
-            "max_tokens": 50,
-            "response_format": {"type": "json_object"}
-        }
-        
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {os.getenv('OPENROUTER_API_TOKEN')}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com"
-                },
-                json=test_prompt
-            )
-        
-        # Проверяем ответ
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                
-                # Пробуем распарсить как JSON
-                json.loads(content)
-                
-                return jsonify({
-                    "status": "success",
-                    "provider": "openrouter",
-                    "response_code": response.status_code,
-                    "response": "✅ OpenRouter возвращает валидный JSON",
-                    "content_preview": content[:100],
-                    "timestamp": datetime.datetime.now().isoformat()
-                })
-            except json.JSONDecodeError:
-                return jsonify({
-                    "status": "json_error",
-                    "provider": "openrouter",
-                    "response_code": response.status_code,
-                    "response": "❌ OpenRouter НЕ возвращает JSON",
-                    "content_preview": content[:200],
-                    "timestamp": datetime.datetime.now().isoformat()
-                })
-        else:
-            return jsonify({
-                "status": "error",
-                "provider": "openrouter",
-                "response_code": response.status_code,
-                "error": response.text[:200],
-                "timestamp": datetime.datetime.now().isoformat()
-            })
             
     except Exception as e:
         return jsonify({
             "status": "exception",
-            "provider": "openrouter",
             "error": str(e),
             "timestamp": datetime.datetime.now().isoformat()
         })
@@ -882,14 +861,25 @@ def home():
     uptime_str = str(uptime).split('.')[0]
     
     # Получение данных о портфеле
-    virtual_positions = virtual_portfolio.positions if 'virtual_portfolio' in globals() else {}
-    virtual_portfolio_value = virtual_portfolio.get_total_value({}) if 'virtual_portfolio' in globals() else 100000
+    virtual_positions = virtual_portfolio.positions
+    virtual_portfolio_value = virtual_portfolio.get_total_value({})
     
     # Получение текущего провайдера ИИ
-    ai_provider = nlp_engine.get_current_provider() if 'nlp_engine' in globals() else "Не инициализирован"
+    ai_provider = nlp_engine.get_current_provider()
     
     # Статус источников
-    sources_status = "✅ NewsAPI, ✅ Zenserp, ⚠️ RSS MOEX"
+    finam_status = "✅" if finam_verifier.api_token else "❌"
+    sources_status = f"✅ NewsAPI, ✅ Zenserp, ✅ RSS, {finam_status} Finam"
+    
+    # Pipeline статистика
+    pipeline_efficiency = pipeline_stats.get('efficiency', 0) if pipeline_stats else 0
+    filtered_percent = pipeline_stats.get('filter_rate_percent', 0) if pipeline_stats else 0
+    
+    # Risk parameters
+    risk_stats = risk_manager.get_risk_stats()
+    risk_per_trade = risk_stats.get('risk_per_trade', 1.5)
+    stop_loss = risk_stats['parameters']['stop_loss_pct']
+    take_profit = risk_stats['parameters']['take_profit_pct']
     
     # Рендеринг HTML
     return render_template_string(
@@ -906,7 +896,14 @@ def home():
         last_signals=last_signals[:5] if last_signals else [],
         virtual_positions=virtual_positions,
         ai_provider=ai_provider,
-        sources_status=sources_status
+        sources_status=sources_status,
+        finam_status=finam_status,
+        pipeline_stats=pipeline_stats,
+        pipeline_efficiency=round(pipeline_efficiency, 1),
+        filtered_percent=round(filtered_percent, 1),
+        risk_per_trade=risk_per_trade,
+        stop_loss=stop_loss,
+        take_profit=take_profit
     )
 
 @app.route('/force')
@@ -914,15 +911,17 @@ def force_trade():
     """Принудительный запуск торговой сессии"""
     run_trading_session(force_mode=True)
     return jsonify({
-        "message": "🚀 Принудительный запуск торговой сессии (агрессивный режим)",
+        "message": "🚀 Принудительный запуск торговой сессии (Signal Pipeline)",
         "timestamp": datetime.datetime.now().isoformat(),
-        "force_mode": True
+        "force_mode": True,
+        "session_number": session_count + 1
     })
 
 @app.route('/trades')
 def show_trades():
     """История сделок"""
-    portfolio_stats = virtual_portfolio.get_stats() if 'virtual_portfolio' in globals() else {}
+    portfolio_stats = virtual_portfolio.get_stats()
+    risk_stats = risk_manager.get_risk_stats()
     
     # HTML для истории сделок
     trades_html = ""
@@ -959,25 +958,36 @@ def show_trades():
     return f"""
     <html>
         <head>
-            <title>История Сделок</title>
+            <title>История Сделок v3.0</title>
             <style>
                 body {{ font-family: Arial; margin: 40px; background: #f8fafc; color: #334155; }}
                 .positive {{ color: #10b981; }}
                 .negative {{ color: #ef4444; }}
                 .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }}
                 .stats {{ background: #f1f5f9; padding: 20px; border-radius: 10px; margin: 20px 0; }}
+                .risk-params {{ background: #e0e7ff; padding: 15px; border-radius: 8px; margin: 10px 0; }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>📋 История Сделок</h1>
+                <h1>📋 История Сделок v3.0</h1>
                 
                 <div class="stats">
+                    <h3>📊 Общая статистика</h3>
                     <p><strong>Всего сделок:</strong> {len(trade_history)}</p>
                     <p><strong>Портфель:</strong> {virtual_portfolio.get_total_value({}):.2f} руб. 
                     (<span class="{{'positive' if total_virtual_return >= 0 else 'negative'}}">{total_virtual_return:+.2f}%</span>)</p>
                     <p><strong>Общая прибыль:</strong> <span class="{{'positive' if total_virtual_profit >= 0 else 'negative'}}">{total_virtual_profit:+.2f} руб.</span></p>
                     <p><strong>Win Rate:</strong> {portfolio_stats.get('win_rate', 0):.1f}%</p>
+                </div>
+                
+                <div class="risk-params">
+                    <h3>🎯 Параметры риска</h3>
+                    <p><strong>Риск на сделку:</strong> {risk_stats.get('risk_per_trade', 1.5)}%</p>
+                    <p><strong>Стоп-лосс:</strong> {risk_stats['parameters']['stop_loss_pct']}%</p>
+                    <p><strong>Тейк-профит:</strong> {risk_stats['parameters']['take_profit_pct']}%</p>
+                    <p><strong>Макс. на тикер:</strong> {risk_stats.get('max_risk_per_ticker', 4.5)}%</p>
+                    <p><strong>Макс. на сектор:</strong> {risk_stats.get('max_risk_per_sector', 12)}%</p>
                 </div>
                 
                 {trades_html if trade_history else "<p>Сделок еще нет</p>"}
@@ -993,10 +1003,11 @@ def show_trades():
 @app.route('/status')
 def status():
     """JSON статус системы"""
-    portfolio_stats = virtual_portfolio.get_stats() if 'virtual_portfolio' in globals() else {}
+    portfolio_stats = virtual_portfolio.get_stats()
     uptime = datetime.datetime.now() - start_time
     
-    nlp_stats = nlp_engine.get_stats() if 'nlp_engine' in globals() else {}
+    nlp_stats = nlp_engine.get_stats()
+    risk_stats = risk_manager.get_risk_stats()
     
     return jsonify({
         "status": bot_status,
@@ -1010,24 +1021,29 @@ def status():
         "last_trading_time": last_trading_time,
         "portfolio_stats": portfolio_stats,
         "nlp_stats": nlp_stats,
+        "risk_stats": risk_stats,
+        "pipeline_stats": pipeline_stats,
         "system_stats": system_stats,
         "last_news_count": last_news_count,
         "last_signals_count": len(last_signals) if last_signals else 0,
         "timestamp": datetime.datetime.now().isoformat(),
-        "strategy": "News NLP Trading with AI",
+        "strategy": "Signal Pipeline News Trading",
         "trading_mode": os.getenv("TRADING_MODE", "AGGRESSIVE_TEST"),
         "check_interval": os.getenv("CHECK_INTERVAL_MINUTES", 15),
-        "ai_provider": nlp_engine.get_current_provider() if 'nlp_engine' in globals() else "Unknown",
+        "ai_provider": nlp_engine.get_current_provider(),
         "providers_configured": {
-            "gigachat": bool(os.getenv("GIGACHAT_CLIENT_ID") and os.getenv("GIGACHAT_CLIENT_SECRET")),
-            "openrouter": bool(os.getenv("OPENROUTER_API_TOKEN"))
+            "gigachat": nlp_engine.providers['gigachat']['enabled'],
+            "openrouter": nlp_engine.providers['openrouter']['enabled'],
+            "finam": bool(finam_verifier.api_token),
+            "enhanced_analyzer": True
         }
     })
 
 @app.route('/stats')
 def detailed_stats():
     """Детальная статистика"""
-    portfolio_stats = virtual_portfolio.get_stats() if 'virtual_portfolio' in globals() else {}
+    portfolio_stats = virtual_portfolio.get_stats()
+    risk_stats = risk_manager.get_risk_stats()
     
     # Разделение сделок по провайдерам
     ai_trades = [t for t in trade_history if t.get('ai_generated')]
@@ -1039,6 +1055,9 @@ def detailed_stats():
     ai_avg = sum(ai_profits)/len(ai_profits) if ai_profits else 0
     simple_avg = sum(simple_profits)/len(simple_profits) if simple_profits else 0
     
+    # Pipeline эффективность
+    pipeline_efficiency = pipeline_stats.get('efficiency', 0) if pipeline_stats else 0
+    
     return jsonify({
         "performance_summary": {
             "total_trades": len(trade_history),
@@ -1046,7 +1065,8 @@ def detailed_stats():
             "simple_trades": len(simple_trades),
             "win_rate": portfolio_stats.get('win_rate', 0),
             "total_profit": total_virtual_profit,
-            "virtual_return": total_virtual_return
+            "virtual_return": total_virtual_return,
+            "pipeline_efficiency": round(pipeline_efficiency, 1)
         },
         "ai_performance": {
             "total_signals": system_stats.get('total_signals_generated', 0),
@@ -1054,22 +1074,26 @@ def detailed_stats():
             "avg_profit_per_trade": ai_avg,
             "success_rate": (len([p for p in ai_profits if p > 0]) / len(ai_profits) * 100) if ai_profits else 0
         },
-        "simple_performance": {
-            "executed_trades": len(simple_trades),
-            "avg_profit_per_trade": simple_avg,
-            "success_rate": (len([p for p in simple_profits if p > 0]) / len(simple_profits) * 100) if simple_profits else 0
+        "risk_management": {
+            "current_capital": risk_stats.get('current_capital', 100000),
+            "risk_per_trade": risk_stats.get('risk_per_trade', 1.5),
+            "sector_risks": risk_stats.get('sector_risks', {}),
+            "open_positions": len(virtual_portfolio.positions),
+            "max_drawdown": portfolio_stats.get('max_drawdown', 0)
         },
+        "pipeline_performance": pipeline_stats,
         "portfolio_status": {
             "current_value": virtual_portfolio.get_total_value({}),
             "positions_count": len(virtual_portfolio.positions),
-            "available_cash": virtual_portfolio.cash
+            "available_cash": virtual_portfolio.cash,
+            "positions": list(virtual_portfolio.positions.keys())
         }
     })
 
 @app.route('/test_moex')
 async def test_moex():
     """Тест MOEX API"""
-    result = await tinkoff_executor.test_moex_connection()
+    result = await tinkoff_executor.test_connections()
     return jsonify(result)
 
 @app.route('/analyze')
@@ -1077,38 +1101,18 @@ def analyze_only():
     """Только анализ без торговли"""
     async def analyze_async():
         all_news = await news_fetcher.fetch_all_news()
-        analyzed = []
         
-        for news_item in all_news[:3]:
-            # Гибридный анализ
-            analysis = await nlp_engine.analyze_news(news_item)
-            
-            if not analysis:
-                # Fallback на simple analyzer
-                simple_result = simple_analyzer.analyze_news(news_item)
-                if simple_result:
-                    simple_result.update({
-                        'news_id': news_item.get('id', ''),
-                        'news_title': news_item.get('title', ''),
-                        'analysis_timestamp': datetime.datetime.now().isoformat(),
-                        'ai_provider': 'simple'
-                    })
-                    analysis = simple_result
-            
-            if analysis:
-                analyzed.append(analysis)
-        
-        signals = []
-        for analysis in analyzed:
-            signals.extend(decision_engine.generate_signals(analysis))
+        # Обработка через pipeline
+        signals = await signal_pipeline.process_news_batch(all_news[:5])
         
         return {
             "analysis_time": datetime.datetime.now().isoformat(),
-            "news_analyzed": len(analyzed),
+            "total_news": len(all_news),
             "signals_generated": len(signals),
-            "sample_analysis": analyzed[0] if analyzed else None,
             "sample_signals": signals[:3] if signals else [],
-            "nlp_stats": nlp_engine.get_stats()
+            "pipeline_stats": signal_pipeline.get_stats(),
+            "nlp_stats": nlp_engine.get_stats(),
+            "prefilter_stats": news_prefilter.get_filter_stats(all_news[:10])
         }
     
     result = asyncio.run(analyze_async())
@@ -1120,22 +1124,29 @@ def test_providers_page():
     
     providers_info = {
         'gigachat': {
-            'configured': bool(os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET')),
-            'status': '✅ Настроен' if (os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET')) else '❌ Не настроен',
+            'configured': nlp_engine.providers['gigachat']['enabled'],
+            'status': '✅ Настроен' if nlp_engine.providers['gigachat']['enabled'] else '❌ Не настроен',
             'client_id_preview': os.getenv('GIGACHAT_CLIENT_ID', '')[:10] + '...' if os.getenv('GIGACHAT_CLIENT_ID') else 'Нет',
             'client_secret_preview': '****' + os.getenv('GIGACHAT_CLIENT_SECRET', '')[-4:] if os.getenv('GIGACHAT_CLIENT_SECRET') else 'Нет'
         },
         'openrouter': {
-            'configured': bool(os.getenv('OPENROUTER_API_TOKEN')),
-            'status': '✅ Настроен' if os.getenv('OPENROUTER_API_TOKEN') else '❌ Не настроен',
-            'token_preview': os.getenv('OPENROUTER_API_TOKEN', '')[:10] + '...' if os.getenv('OPENROUTER_API_TOKEN') else 'Нет'
+            'configured': nlp_engine.providers['openrouter']['enabled'],
+            'status': '✅ Настроен' if nlp_engine.providers['openrouter']['enabled'] else '❌ Не настроен',
+            'token_preview': os.getenv('OPENROUTER_API_TOKEN', '')[:10] + '...' if os.getenv('OPENROUTER_API_TOKEN') else 'Нет',
+            'models_count': len(nlp_engine.openrouter_models)
+        },
+        'finam': {
+            'configured': bool(finam_verifier.api_token),
+            'status': '✅ Настроен' if finam_verifier.api_token else '❌ Не настроен',
+            'token_preview': finam_verifier.api_token[:8] + '...' if finam_verifier.api_token else 'Нет',
+            'liquid_tickers': len(finam_verifier.liquid_tickers)
         }
     }
     
     return f"""
     <html>
         <head>
-            <title>Тест ИИ-провайдеров</title>
+            <title>Тест ИИ-провайдеров v3.0</title>
             <style>
                 body {{ font-family: Arial; margin: 40px; background: #f8fafc; color: #334155; }}
                 .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }}
@@ -1145,36 +1156,46 @@ def test_providers_page():
                 .btn-test:hover {{ background: #0da271; }}
                 .btn-back {{ background: #3b82f6; }}
                 .btn-back:hover {{ background: #2563eb; }}
+                .btn-pipeline {{ background: #8b5cf6; }}
+                .btn-pipeline:hover {{ background: #7c3aed; }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>🔧 Тестирование ИИ-провайдеров</h1>
-                <p>Проверка работы GigaChat и OpenRouter API</p>
+                <h1>🔧 Тестирование провайдеров v3.0</h1>
+                <p>Проверка работы всех компонентов системы</p>
                 
                 <div class="provider">
-                    <h3>🏦 GigaChat API (Сбербанк) - OAuth 2.0</h3>
+                    <h3>🏦 GigaChat API (Сбербанк) - OAuth 2.0 Basic</h3>
                     <p><strong>Статус:</strong> {providers_info['gigachat']['status']}</p>
                     <p><strong>Client ID:</strong> {providers_info['gigachat']['client_id_preview']}</p>
                     <p><strong>Client Secret:</strong> {providers_info['gigachat']['client_secret_preview']}</p>
                     <p><strong>Scope:</strong> GIGACHAT_API_PERS</p>
-                    <p><strong>Endpoint:</strong> https://gigachat.devices.sberbank.ru/api/v1/chat/completions</p>
-                    <a href="/test_gigachat_fixed" class="btn btn-test">🧪 Тест GigaChat (исправленный)</a>
+                    <a href="/test_gigachat_fixed" class="btn btn-test">🧪 Тест GigaChat</a>
                 </div>
                 
                 <div class="provider">
                     <h3>🌍 OpenRouter API</h3>
                     <p><strong>Статус:</strong> {providers_info['openrouter']['status']}</p>
                     <p><strong>Токен:</strong> {providers_info['openrouter']['token_preview']}</p>
-                    <p><strong>Модели:</strong> Gemini, Mistral, DeepSeek</p>
+                    <p><strong>Модели:</strong> {providers_info['openrouter']['models_count']} бесплатных</p>
                     <p><strong>Endpoint:</strong> https://openrouter.ai/api/v1/chat/completions</p>
-                    <a href="/test_openrouter_fixed" class="btn btn-test">🧪 Тест OpenRouter (исправленный)</a>
+                </div>
+                
+                <div class="provider">
+                    <h3>🏦 Finam API</h3>
+                    <p><strong>Статус:</strong> {providers_info['finam']['status']}</p>
+                    <p><strong>Токен:</strong> {providers_info['finam']['token_preview']}</p>
+                    <p><strong>Ликвидных тикеров:</strong> {providers_info['finam']['liquid_tickers']}</p>
+                    <p><strong>Client ID:</strong> {finam_verifier.client_id}</p>
+                    <a href="/test_finam" class="btn btn-test">🧪 Тест Finam</a>
                 </div>
                 
                 <div style="margin-top: 30px;">
                     <a href="/" class="btn btn-back">← На главную</a>
+                    <a href="/test_pipeline" class="btn btn-pipeline">⚙️ Тест Pipeline</a>
                     <a href="/analyze" class="btn btn-test">📰 Тест полного анализа</a>
-                    <a href="/debug_auth" class="btn btn-test">🔑 Проверка авторизации</a>
+                    <a href="/force" class="btn btn-test">🚀 Тестовая торговля</a>
                 </div>
             </div>
         </body>
@@ -1194,7 +1215,7 @@ def show_env():
                 env_vars[key] = f"{masked} (длина: {len(value)})"
             else:
                 env_vars[key] = "****"
-        elif 'MODE' in key or 'INTERVAL' in key or 'CONFIDENCE' in key or 'SCORE' in key or 'SIZE' in key or 'LOSS' in key:
+        elif 'MODE' in key or 'INTERVAL' in key or 'CONFIDENCE' in key or 'SCORE' in key or 'SIZE' in key or 'LOSS' in key or 'RISK' in key:
             env_vars[key] = value
     
     return jsonify({
@@ -1212,25 +1233,23 @@ if __name__ == '__main__':
     
     # Инициализация системы
     logger.info("=" * 60)
-    logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' ЗАПУЩЕН!")
-    logger.info("🎯 Архитектура: Гибридный NLP-анализ с предфильтрацией")
-    logger.info(f"🏦 Основной провайдер: GigaChat API {'✅' if os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET') else '❌'}")
-    logger.info(f"🌍 Резервный провайдер: OpenRouter API {'✅' if os.getenv('OPENROUTER_API_TOKEN') else '❌'}")
-    logger.info(f"🧠 Fallback: SimpleAnalyzer ✅")
+    logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' v3.0 ЗАПУЩЕН!")
+    logger.info("🎯 Архитектура: Signal Pipeline с Risk Management")
+    logger.info(f"🏦 Основной провайдер: GigaChat API {'✅' if nlp_engine.providers['gigachat']['enabled'] else '❌'}")
+    logger.info(f"🌍 Резервный провайдер: OpenRouter API {'✅' if nlp_engine.providers['openrouter']['enabled'] else '❌'}")
+    logger.info(f"🏦 Finam API: {'✅' if finam_verifier.api_token else '❌'}")
+    logger.info(f"🧠 EnhancedAnalyzer: ✅ ({len(enhanced_analyzer.TICKER_MAP)} тикеров)")
     logger.info(f"⚡ Режим: {os.getenv('TRADING_MODE', 'AGGRESSIVE_TEST')}")
     logger.info(f"⏰ Проверки: каждые {os.getenv('CHECK_INTERVAL_MINUTES', 15)} минут")
     logger.info(f"📊 Портфель: 100,000 руб. (виртуальный)")
-    logger.info("⚙️ Параметры стратегии:")
-    logger.info(f"   • Размер позиции: {os.getenv('BASE_POSITION_SIZE', '5.0')}%")
-    logger.info(f"   • Стоп-лосс: {os.getenv('BASE_STOP_LOSS', '2.0')}%")
-    logger.info(f"   • Min Confidence: {os.getenv('MIN_CONFIDENCE', '0.7')}")
+    logger.info("🎯 Параметры стратегии:")
+    logger.info(f"   • Риск на сделку: {risk_manager.risk_per_trade}%")
+    logger.info(f"   • Стоп-лосс: {risk_manager.stop_loss_pct}%")
+    logger.info(f"   • Тейк-профит: {risk_manager.take_profit_pct}%")
+    logger.info(f"   • Макс. на тикер: {risk_manager.max_risk_per_ticker}%")
+    logger.info(f"   • Макс. на сектор: {risk_manager.max_risk_per_sector}%")
     logger.info("🌐 Веб-интерфейс: http://0.0.0.0:10000")
     logger.info("=" * 60)
-    
-    # Логируем конфигурацию провайдеров
-    logger.info("🔧 Конфигурация провайдеров:")
-    logger.info(f"   GigaChat: {'✅ Настроен' if (os.getenv('GIGACHAT_CLIENT_ID') and os.getenv('GIGACHAT_CLIENT_SECRET')) else '❌ Не настроен'}")
-    logger.info(f"   OpenRouter: {'✅ Настроен' if os.getenv('OPENROUTER_API_TOKEN') else '❌ Не настроен'}")
     
     # Запуск Flask приложения
     app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
