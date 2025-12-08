@@ -57,6 +57,7 @@ class TinkoffExecutor:
     finam_ticker = self.ticker_mapping.get(ticker.upper())
     if not finam_ticker:
         return None
+    # ... остальной код
     
     try:
         url = f"https://trade-api.finam.ru/public/api/v1/securities/{finam_ticker}/quotes"
