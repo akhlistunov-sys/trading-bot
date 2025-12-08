@@ -1110,6 +1110,152 @@ def show_env():
         "total_vars": len(env_vars),
         "timestamp": datetime.datetime.now().isoformat()
     })
+    @app.route('/test_gigachat_fixed')
+async def test_gigachat_fixed():
+    """Тест исправленного GigaChat API"""
+    
+    if not os.getenv('GIGACHAT_CLIENT_ID') or not os.getenv('GIGACHAT_CLIENT_SECRET'):
+        return jsonify({
+            "error": "Требуются GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET",
+            "status": "configuration_error"
+        })
+    
+    try:
+        # Создаем тестовый запрос
+        test_prompt = {
+            "model": "GigaChat",
+            "messages": [
+                {
+                    "role": "system", 
+                    "content": "Ты помощник. Отвечай ТОЛЬКО JSON: {'test': 'success'}"
+                },
+                {
+                    "role": "user", 
+                    "content": "Это тест. Верни {'test': 'success'}"
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 50
+        }
+        
+        # Создаем временный auth объект
+        test_auth = GigaChatAuth(
+            client_id=os.getenv('GIGACHAT_CLIENT_ID'),
+            client_secret=os.getenv('GIGACHAT_CLIENT_SECRET'),
+            scope=os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
+        )
+        
+        # Получаем токен
+        token = await test_auth.get_access_token()
+        if not token:
+            return jsonify({
+                "status": "token_error",
+                "message": "Не удалось получить токен"
+            })
+        
+        # Делаем запрос
+        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            response = await client.post(url, headers=headers, json=test_prompt)
+            
+            return jsonify({
+                "status": "success" if response.status_code == 200 else "error",
+                "response_code": response.status_code,
+                "token_preview": f"{token[:20]}...",
+                "response": response.text[:500] if response.status_code != 200 else "API работает",
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "status": "exception",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+
+@app.route('/test_openrouter_fixed')
+async def test_openrouter_fixed():
+    """Тест исправленного OpenRouter API"""
+    
+    if not os.getenv('OPENROUTER_API_TOKEN'):
+        return jsonify({"error": "OPENROUTER_API_TOKEN не настроен"})
+    
+    try:
+        # ОЧЕНЬ СТРОГИЙ промпт для теста
+        test_prompt = {
+            "model": "google/gemini-2.0-flash-exp:free",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You MUST output ONLY valid JSON. No other text. Example: {'test': 'openrouter_works'}"
+                },
+                {
+                    "role": "user", 
+                    "content": "Test. Return {'test': 'openrouter_works'}"
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 50
+        }
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {os.getenv('OPENROUTER_API_TOKEN')}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com"
+                },
+                json=test_prompt
+            )
+        
+        # Проверяем ответ
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                
+                # Пробуем распарсить как JSON
+                json.loads(content)
+                
+                return jsonify({
+                    "status": "success",
+                    "provider": "openrouter",
+                    "response_code": response.status_code,
+                    "response": "✅ OpenRouter возвращает валидный JSON",
+                    "content_preview": content[:100],
+                    "timestamp": datetime.datetime.now().isoformat()
+                })
+            except json.JSONDecodeError:
+                return jsonify({
+                    "status": "json_error",
+                    "provider": "openrouter",
+                    "response_code": response.status_code,
+                    "response": "❌ OpenRouter НЕ возвращает JSON",
+                    "content_preview": content[:200],
+                    "timestamp": datetime.datetime.now().isoformat()
+                })
+        else:
+            return jsonify({
+                "status": "error",
+                "provider": "openrouter",
+                "response_code": response.status_code,
+                "error": response.text[:200],
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "status": "exception",
+            "provider": "openrouter",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        })
 
 if __name__ == '__main__':
     # Запуск планировщика
