@@ -130,14 +130,14 @@ class DecisionEngine:
     
     if (confidence < self.min_confidence or 
         impact_score < self.min_impact_score or 
-        relevance_score < 50 or 
+        relevance_score < 20 or 
         not tickers):
         
         # Детальный лог что именно не прошло
         failed_checks = []
         if confidence < self.min_confidence:
             failed_checks.append(f"conf {confidence:.2f}<{self.min_confidence}")
-        if impact_score < self.min_impact_score:
+        if impact_score < self.min_impact_score: → if False:
             failed_checks.append(f"impact {impact_score}<{self.min_impact_score}")
         if relevance_score < 50:
             failed_checks.append(f"relevance {relevance_score}<50")
