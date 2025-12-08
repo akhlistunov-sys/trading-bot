@@ -53,39 +53,38 @@ class TinkoffExecutor:
         logger.info(f"   Тикеров в маппинге: {len(self.ticker_mapping)}")
     
     async def get_price_from_finam(self, ticker: str) -> Optional[float]:
-        """Получение цены с Finam API"""
-        finam_ticker = self.ticker_mapping.get(ticker.upper())
-        if not finam_ticker:
-            return None
+    """Получение цены с Finam API"""
+    finam_ticker = self.ticker_mapping.get(ticker.upper())
+    if not finam_ticker:
+        return None
+    
+    try:
+        url = f"https://trade-api.finam.ru/public/api/v1/securities/{finam_ticker}/quotes"
         
-        try:
-            # Используем Trade API Finam
-            url = f"https://trade-api.finam.ru/public/api/v1/securities/{finam_ticker}/quotes"
-            
-            headers = {
-                'X-Api-Key': self.finam_token,
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=10) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        if data.get('status') == 'Ok':
-                            quotes = data.get('data', {}).get('quotes', [])
-                            if quotes:
-                                last_price = quotes[0].get('last')
-                                if last_price:
-                                    logger.debug(f"   ✅ Finam цена {ticker}: {last_price}")
-                                    return float(last_price)
-            
-            return None
-            
-        except Exception as e:
-            logger.debug(f"   ⚠️ Finam price ошибка для {ticker}: {str(e)[:50]}")
-            return None
+        headers = {
+            'Authorization': f'Bearer {self.finam_token}',  # ✅ Bearer а не X-Api-Key
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    if data.get('status') == 'Ok':
+                        quotes = data.get('data', {}).get('quotes', [])
+                        if quotes:
+                            last_price = quotes[0].get('last')
+                            if last_price:
+                                logger.debug(f"   ✅ Finam цена {ticker}: {last_price}")
+                                return float(last_price)
+        
+        return None
+        
+    except Exception as e:
+        logger.debug(f"   ⚠️ Finam price ошибка для {ticker}: {str(e)[:50]}")
+        return None
     
     async def get_price_from_moex(self, ticker: str) -> Optional[float]:
         """Получение цены с MOEX (резерв)"""
