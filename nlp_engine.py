@@ -27,86 +27,52 @@ class GigaChatAuth:
         self.token_expiry = 0
         
     async def get_access_token(self) -> Optional[str]:
-        """Получение access token (РАБОТАЮЩАЯ версия как в примере с авто)"""
-        
-        if self.access_token and time.time() < self.token_expiry - 60:
-            return self.access_token
-        
-        url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
-        
-        # УНИКАЛЬНЫЙ RqUID для каждого запроса
-        rquid = str(uuid.uuid4())
-        
-        # Создаем Basic auth строку
-        credentials = f"{self.client_id}:{self.client_secret}"
-        auth_base64 = base64.b64encode(credentials.encode()).decode()
-        
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'RqUID': rquid,
-            'Authorization': f'Basic {auth_base64}'
-        }
-        
-        payload = {
-            'scope': self.scope
-        }
-        
-        # Стратегии SSL для Render
-        ssl_strategies = [
-            ("combined_cert", True),    # 1. Наш объединённый сертификат
-            ("sber_cert", True),        # 2. Сертификат Sber
-            ("certifi", True),          # 3. Только certifi
-            ("insecure", False)         # 4. Без проверки SSL (работающий вариант)
-        ]
-        
-        for strategy, verify_ssl in ssl_strategies:
-            try:
-                logger.info(f"🔑 Запрашиваю токен GigaChat (RqUID: {rquid[:8]}, SSL: {strategy})")
+    """РАБОТАЮЩАЯ версия как в том файле"""
+    
+    if self.access_token and time.time() < self.token_expiry - 60:
+        return self.access_token
+    
+    url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    
+    # ФИКСИРОВАННЫЙ RqUID как в работающем коде
+    rquid = "6f0b1291-c7f3-4c4a-9d6a-2d47b5d91e13"
+    
+    # ВАЖНО: Client secret теперь PLAIN TEXT в Render
+    # Не декодируем base64!
+    credentials = f"{self.client_id}:{self.client_secret}"
+    auth_base64 = base64.b64encode(credentials.encode()).decode()
+    
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        'RqUID': rquid,  # ФИКСИРОВАННЫЙ
+        'Authorization': f'Basic {auth_base64}'
+    }
+    
+    # Формат данных
+    data = {'scope': self.scope}
+    
+    # ТОЛЬКО verify=False (как в работающем коде)
+    try:
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            verify=False  # Без SSL проверки
+        ) as client:
+            response = await client.post(url, headers=headers, data=data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                self.access_token = result.get('access_token')
+                self.token_expiry = time.time() + 1800  # 30 минут
                 
-                if strategy == "insecure":
-                    # Без проверки SSL - как в работающем коде
-                    verify = False
-                else:
-                    ssl_context = self._create_ssl_context(strategy)
-                    verify = ssl_context
+                logger.info(f"✅ GigaChat токен получен")
+                return self.access_token
+            else:
+                logger.error(f"❌ GigaChat ошибка {response.status_code}: {response.text[:100]}")
+                return None
                 
-                async with httpx.AsyncClient(
-                    timeout=30.0,
-                    verify=verify
-                ) as client:
-                    response = await client.post(url, headers=headers, data=payload)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        self.access_token = data.get('access_token')
-                        expires_at = data.get('expires_at', 0)
-                        
-                        if expires_at > 1000000000000:  # Если в миллисекундах
-                            self.token_expiry = expires_at / 1000
-                        else:
-                            self.token_expiry = time.time() + 1800  # 30 минут по умолчанию
-                        
-                        logger.info(f"✅ GigaChat: токен получен (RqUID: {rquid[:8]})")
-                        return self.access_token
-                    
-                    elif response.status_code == 429:
-                        logger.warning(f"⚠️ Rate limit, жду 5 секунд...")
-                        await asyncio.sleep(5)
-                        continue
-                    
-                    elif response.status_code == 401:
-                        logger.error(f"❌ Ошибка авторизации (RqUID: {rquid[:8]}): {response.text[:100]}")
-                        return None
-                    else:
-                        logger.debug(f"⚠️ SSL стратегия {strategy} ошибка: {response.status_code}")
-                        continue
-                        
-            except Exception as e:
-                logger.debug(f"⚠️ SSL стратегия {strategy} ошибка: {str(e)[:50]}")
-                continue
-        
-        logger.error(f"❌ Все SSL стратегии не сработали (RqUID: {rquid[:8]})")
+    except Exception as e:
+        logger.error(f"❌ Ошибка запроса GigaChat: {str(e)[:100]}")
         return None
     
     def _create_ssl_context(self, strategy: str) -> ssl.SSLContext:
