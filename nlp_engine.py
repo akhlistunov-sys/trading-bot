@@ -27,52 +27,42 @@ class GigaChatAuth:
         self.token_expiry = 0
         
     async def get_access_token(self) -> Optional[str]:
-    """РАБОТАЮЩАЯ версия как в том файле"""
+    """САМАЯ ПРОСТАЯ версия - secret уже base64"""
     
     if self.access_token and time.time() < self.token_expiry - 60:
         return self.access_token
     
     url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    rquid = str(uuid.uuid4())
     
-    # ФИКСИРОВАННЫЙ RqUID как в работающем коде
-    rquid = "6f0b1291-c7f3-4c4a-9d6a-2d47b5d91e13"
-    
-    # ВАЖНО: Client secret теперь PLAIN TEXT в Render
-    # Не декодируем base64!
-    credentials = f"{self.client_id}:{self.client_secret}"
-    auth_base64 = base64.b64encode(credentials.encode()).decode()
+    # Client Secret УЖЕ готовый base64!
+    # MDE5YWM0ZTEtOTQxNi03YzViLTg3MjItZmQ1YjA5ZDg1ODQ4OmQwN2ZkN2EwLWIzZTAtNGRhNC05NzA2LWU2ZWI5NjM4ODI0Mw==
+    # Декодируется в: 019ac4e1-...:d07fd7a0-...
     
     headers = {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Accept': 'application/json',
-        'RqUID': rquid,  # ФИКСИРОВАННЫЙ
-        'Authorization': f'Basic {auth_base64}'
+        'RqUID': rquid,
+        'Authorization': f'Basic {self.client_secret}'  # УЖЕ base64!
     }
     
-    # Формат данных
     data = {'scope': self.scope}
     
-    # ТОЛЬКО verify=False (как в работающем коде)
     try:
-        async with httpx.AsyncClient(
-            timeout=30.0,
-            verify=False  # Без SSL проверки
-        ) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.post(url, headers=headers, data=data)
             
             if response.status_code == 200:
                 result = response.json()
                 self.access_token = result.get('access_token')
-                self.token_expiry = time.time() + 1800  # 30 минут
-                
-                logger.info(f"✅ GigaChat токен получен")
+                self.token_expiry = time.time() + 1800
+                logger.info(f"✅ GigaChat токен получен!")
                 return self.access_token
             else:
-                logger.error(f"❌ GigaChat ошибка {response.status_code}: {response.text[:100]}")
+                logger.error(f"❌ Ошибка {response.status_code}: {response.text[:100]}")
                 return None
-                
     except Exception as e:
-        logger.error(f"❌ Ошибка запроса GigaChat: {str(e)[:100]}")
+        logger.error(f"❌ Ошибка запроса: {e}")
         return None
     
     def _create_ssl_context(self, strategy: str) -> ssl.SSLContext:
