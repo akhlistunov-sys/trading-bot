@@ -1,4 +1,4 @@
-# risk_manager.py
+# risk_manager.py - ПОЛНЫЙ ИСПРАВЛЕННЫЙ КОД
 import logging
 import os
 from datetime import datetime
@@ -255,7 +255,7 @@ class RiskManager:
         return False
     
     def _get_sector_risk(self, sector: str, new_position_value: float = 0) -> float:
-        """Расчёт текущего риска сектора в % от капитала"""
+        """Расчёт текущего риска сектора в % от капитала - ИСПРАВЛЕННЫЙ"""
         sector_value = 0
         
         for ticker, pos in self.open_positions.items():
@@ -265,6 +265,10 @@ class RiskManager:
         
         # Добавляем новую позицию
         sector_value += new_position_value
+        
+        # ФИКС: Проверяем что capital не ноль
+        if self.current_capital <= 0:
+            return 0.0
         
         return (sector_value / self.current_capital) * 100
     
@@ -278,6 +282,10 @@ class RiskManager:
         
         # Добавляем новую позицию
         ticker_value += new_position_value
+        
+        # ФИКС: Проверяем что capital не ноль
+        if self.current_capital <= 0:
+            return 0.0
         
         return (ticker_value / self.current_capital) * 100
     
@@ -296,16 +304,19 @@ class RiskManager:
         self.open_positions = positions
         
         # Пересчитываем текущий капитал
-        total_value = sum(pos.get('current_value', pos['size'] * pos['avg_price']) 
-                         for pos in positions.values())
+        total_value = 0
+        for pos in positions.values():
+            total_value += pos.get('current_value', pos['size'] * pos['avg_price'])
+        
         self.current_capital = total_value
     
     def get_risk_stats(self) -> Dict:
-        """Получение статистики рисков"""
+        """Получение статистики рисков - ИСПРАВЛЕННЫЙ"""
         sector_risks = {}
         
         for sector in self.sectors.keys():
-            sector_risks[sector] = self._get_sector_risk(sector)
+            risk = self._get_sector_risk(sector)
+            sector_risks[sector] = 0.0 if risk is None else risk
         
         return {
             'current_capital': self.current_capital,
