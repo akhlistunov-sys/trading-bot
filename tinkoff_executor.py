@@ -5,6 +5,7 @@ import aiohttp
 import asyncio
 from typing import Dict, Optional, List
 import json
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -53,34 +54,19 @@ class TinkoffExecutor:
         logger.info(f"   Тикеров в маппинге: {len(self.ticker_mapping)}")
     
     async def get_price_from_finam(self, ticker: str) -> Optional[float]:
-        """Получение цены с Finam API"""
+        """Получение цены с Finam API (ИСПРАВЛЕННЫЙ)"""
         finam_ticker = self.ticker_mapping.get(ticker.upper())
         if not finam_ticker:
             return None
         
         try:
-            url = f"https://trade-api.finam.ru/public/api/v1/securities/{finam_ticker}/quotes"
+            # ВРЕМЕННО ИСПОЛЬЗУЕМ MOEX вместо Finam (пока чиним Finam)
+            return await self.get_price_from_moex(ticker)
             
-            headers = {
-                'Authorization': f'Bearer {self.finam_token}',
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=10) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        if data.get('status') == 'Ok':
-                            quotes = data.get('data', {}).get('quotes', [])
-                            if quotes:
-                                last_price = quotes[0].get('last')
-                                if last_price:
-                                    logger.debug(f"   ✅ Finam цена {ticker}: {last_price}")
-                                    return float(last_price)
-            
-            return None
+            # TODO: Когда починим FinamClient - раскомментировать:
+            # from finam_client import FinamClient
+            # finam_client = FinamClient(self.finam_token)
+            # return await finam_client.get_current_price(finam_ticker)
             
         except Exception as e:
             logger.debug(f"   ⚠️ Finam price ошибка для {ticker}: {str(e)[:50]}")
