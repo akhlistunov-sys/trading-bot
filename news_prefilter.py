@@ -82,11 +82,11 @@ class NewsPreFilter:
         reject_count = sum(1 for kw in self.reject_keywords if kw in full_text)
         
         # 3. Решение
-        if reject_count >= 2 and accept_count <= 1:
+        if reject_count >= 3 and accept_count <= 1:
             logger.debug(f"❌ Reject: reject={reject_count}, accept={accept_count}")
             return False
         
-        if accept_count >= 2:
+        if accept_count >= 1:
             logger.debug(f"✅ Accept: accept={accept_count}")
             return True
         
