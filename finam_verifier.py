@@ -90,18 +90,19 @@ class FinamVerifier:
                 continue
             
             try:
-                # Получаем данные с Finam
-                price_data = await self._get_finam_price(ticker_upper)
-                volume_data = await self._get_finam_volume(ticker_upper)
+                # Получаем данные с MOEX (временно вместо Finam)
+                price_data = await self._get_moex_price(ticker_upper)
+                volume_data = await self._get_moex_volume(ticker_upper)
                 
                 if not price_data or not volume_data:
                     verification_results[ticker] = {
                         'valid': False,
-                        'reason': 'Нет данных от Finam',
+                        'reason': 'Нет данных от MOEX',
                         'liquid': True,
                         'price': self.fallback_prices.get(ticker_upper),
                         'volume': 0,
-                        'sector': self._get_sector(ticker_upper)
+                        'sector': self._get_sector(ticker_upper),
+                        'data_source': 'fallback'
                     }
                     continue
                 
@@ -137,7 +138,7 @@ class FinamVerifier:
                     'current_volume': current_volume,
                     'volume_ratio': round(volume_ratio, 2),
                     'sector': self._get_sector(ticker_upper),
-                    'data_source': 'Finam'
+                    'data_source': 'moex'
                 }
                 
             except Exception as e:
@@ -149,7 +150,7 @@ class FinamVerifier:
                     'price': self.fallback_prices.get(ticker_upper),
                     'volume': 0,
                     'sector': self._get_sector(ticker_upper),
-                    'data_source': 'Fallback'
+                    'data_source': 'fallback'
                 }
         
         # Итоговое решение
@@ -171,46 +172,9 @@ class FinamVerifier:
                 'details': verification_results
             }
     
-    async def _get_finam_price(self, ticker: str) -> Optional[Dict]:
-        """Получение текущей цены с Finam API (ИСПРАВЛЕННЫЙ)"""
+    async def _get_moex_price(self, ticker: str) -> Optional[Dict]:
+        """Получение цены с MOEX API (временно вместо Finam)"""
         try:
-            # Используем Trade API Finam с Bearer токеном
-            url = f"https://trade-api.finam.ru/public/api/v1/securities/{ticker}/quotes"
-            
-            # ✅ ИСПРАВЛЕННЫЙ ЗАГОЛОВОК (Bearer вместо X-Api-Key)
-            headers = {
-                'Authorization': f'Bearer {self.api_token}',
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=10) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        if data.get('status') == 'Ok':
-                            quotes = data.get('data', {}).get('quotes', [])
-                            if quotes:
-                                last_price = quotes[0].get('last')
-                                if last_price:
-                                    logger.debug(f"   ✅ Finam цена {ticker}: {last_price}")
-                                    return {'price': float(last_price), 'source': 'finam_api'}
-                    
-                    # Логируем ошибку
-                    logger.error(f"   ❌ Finam API ошибка {response.status}: {await response.text()[:100]}")
-                    return None
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"   ❌ Finam price ошибка для {ticker}: {str(e)[:100]}")
-            return None
-    
-    async def _get_finam_volume(self, ticker: str) -> Optional[Dict]:
-        """Получение данных об объёмах"""
-        try:
-            # Используем MOEX ISS как fallback для объёмов
             url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}.json?iss.meta=off"
             
             async with aiohttp.ClientSession() as session:
@@ -218,7 +182,41 @@ class FinamVerifier:
                     if response.status == 200:
                         data = await response.json()
                         
-                        # Парсим данные MOEX
+                        marketdata = data.get('marketdata', {})
+                        columns = marketdata.get('columns', [])
+                        data_rows = marketdata.get('data', [])
+                        
+                        if data_rows:
+                            # Ищем цену
+                            if 'LAST' in columns:
+                                idx = columns.index('LAST')
+                                price = data_rows[0][idx]
+                            elif 'LCURRENTPRICE' in columns:
+                                idx = columns.index('LCURRENTPRICE')
+                                price = data_rows[0][idx]
+                            else:
+                                price = None
+                            
+                            if price and price > 0:
+                                logger.debug(f"   ✅ MOEX цена {ticker}: {price}")
+                                return {'price': float(price), 'source': 'moex'}
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"   ❌ MOEX price ошибка для {ticker}: {str(e)[:100]}")
+            return None
+    
+    async def _get_moex_volume(self, ticker: str) -> Optional[Dict]:
+        """Получение данных об объёмах с MOEX"""
+        try:
+            url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}.json?iss.meta=off"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10, ssl=False) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
                         marketdata = data.get('marketdata', {})
                         columns = marketdata.get('columns', [])
                         data_rows = marketdata.get('data', [])
@@ -241,7 +239,7 @@ class FinamVerifier:
             return {'current_volume': 1000000, 'avg_volume': 1500000, 'source': 'fallback'}
             
         except Exception as e:
-            logger.debug(f"   ⚠️ Finam volume ошибка для {ticker}: {str(e)[:50]}")
+            logger.debug(f"   ⚠️ MOEX volume ошибка для {ticker}: {str(e)[:50]}")
             return {'current_volume': 1000000, 'avg_volume': 1500000, 'source': 'error'}
     
     def _get_sector(self, ticker: str) -> str:
@@ -266,14 +264,14 @@ class FinamVerifier:
         for ticker in tickers:
             ticker_upper = ticker.upper()
             
-            if ticker_upper in self.fallback_prices:
+            # Сначала пробуем MOEX
+            price_data = await self._get_moex_price(ticker_upper)
+            if price_data:
+                prices[ticker] = price_data['price']
+            elif ticker_upper in self.fallback_prices:
+                # Fallback
                 prices[ticker] = self.fallback_prices[ticker_upper]
             else:
-                # Пробуем получить с Finam
-                price_data = await self._get_finam_price(ticker_upper)
-                if price_data:
-                    prices[ticker] = price_data['price']
-                else:
-                    prices[ticker] = 100.0  # Дефолтная цена
+                prices[ticker] = 100.0  # Дефолтная цена
         
         return prices
