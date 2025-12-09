@@ -886,7 +886,7 @@ def home():
     virtual_portfolio_value = virtual_portfolio.get_total_value({})
     
     # Получение текущего провайдера ИИ
-    ai_provider = nlp_engine.get_current_provider()
+    ai_provider = nlp_engine.provider_priority[0] if nlp_engine.provider_priority else "none"
     
     # Статус источников
     finam_status = "✅" if finam_verifier.api_token else "❌"
