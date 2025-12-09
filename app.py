@@ -45,7 +45,7 @@ logger.info("=" * 60)
 # ТЕПЕРЬ импортируем наши модули
 from news_fetcher import NewsFetcher
 from nlp_engine import NlpEngine
-from decision_engine import DecisionEngine
+from decision_engine import DecisionEngine  # Проверить что класс называется DecisionEngine (с заглавной D)
 from tinkoff_executor import TinkoffExecutor
 from virtual_portfolio import VirtualPortfolioPro
 from enhanced_analyzer import EnhancedAnalyzer
@@ -604,7 +604,6 @@ async def trading_session_async(force_mode=False):
         if not all_news:
             logger.warning("⚠️ Новостей не найдено")
             bot_status = f"🤖 Ожидание новостей | Сессия #{session_count}"
-            is_trading = False
             return
         
         logger.info(f"✅ Получено {len(all_news)} новостей")
@@ -622,7 +621,6 @@ async def trading_session_async(force_mode=False):
         if not signals:
             logger.info("ℹ️ Нет торговых сигналов для выполнения")
             bot_status = f"🤖 Нет сигналов | Сессия #{session_count}"
-            is_trading = False
             return
         
         logger.info(f"✅ Сформировано {len(signals)} сигналов")
@@ -633,14 +631,27 @@ async def trading_session_async(force_mode=False):
         tickers_to_check = list(set(signal['ticker'] for signal in signals))
         
         for ticker in tickers_to_check:
-            price = await tinkoff_executor.get_current_price(ticker)
-            if price:
-                current_prices[ticker] = price
+            try:
+                price = await tinkoff_executor.get_current_price(ticker)
+                if price:
+                    current_prices[ticker] = price
+                else:
+                    logger.warning(f"⚠️ Не удалось получить цену для {ticker}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения цены {ticker}: {str(e)[:50]}")
         
         if not current_prices:
-            logger.error("❌ Не удалось получить цены")
-            is_trading = False
-            return
+            logger.error("❌ Не удалось получить цены ни для одного тикера")
+            # Используем fallback цены для продолжения тестирования
+            for signal in signals:
+                ticker = signal['ticker']
+                if ticker in tinkoff_executor.fallback_prices:
+                    current_prices[ticker] = tinkoff_executor.fallback_prices[ticker]
+                    logger.info(f"📊 Использую fallback цену для {ticker}")
+            
+            if not current_prices:
+                logger.error("❌ Нет даже fallback цен")
+                return
         
         # 4. Обновление позиций в RiskManager
         risk_manager.update_positions(virtual_portfolio.positions)
@@ -653,9 +664,16 @@ async def trading_session_async(force_mode=False):
         executed_trades = []
         
         for signal in all_trades:
-            trade_result = virtual_portfolio.execute_trade(signal, current_prices.get(signal['ticker']))
-            if trade_result:
-                executed_trades.append(trade_result)
+            try:
+                ticker = signal['ticker']
+                if ticker in current_prices:
+                    trade_result = virtual_portfolio.execute_trade(signal, current_prices[ticker])
+                    if trade_result:
+                        executed_trades.append(trade_result)
+                else:
+                    logger.warning(f"⚠️ Нет цены для исполнения сигнала {ticker}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка исполнения сигнала {signal.get('ticker', 'unknown')}: {str(e)[:50]}")
         
         # 7. Обновление истории и статистики
         trade_history.extend(executed_trades)
@@ -699,18 +717,21 @@ async def trading_session_async(force_mode=False):
         
         if executed_trades:
             for trade in executed_trades:
-                if trade['status'] == 'EXECUTED':
+                if trade.get('status') == 'EXECUTED':
                     profit = trade.get('profit', 0)
                     symbol = '🟢' if profit >= 0 else '🔴'
-                    logger.info(f"{symbol} {trade['action']} {trade['ticker']} x{trade['size']}: {profit:+.2f} руб.")
+                    logger.info(f"{symbol} {trade.get('action', '')} {trade.get('ticker', '')} x{trade.get('size', 0)}: {profit:+.2f} руб.")
         
     except Exception as e:
-        logger.error(f"❌ Ошибка в торговой сессии: {str(e)[:200]}")
+        logger.error(f"❌ КРИТИЧЕСКАЯ ошибка в торговой сессии: {str(e)}")
         import traceback
-        logger.error(f"Трейсбек: {traceback.format_exc()[:300]}")
+        logger.error(f"Трейсбек: {traceback.format_exc()[:500]}")
         bot_status = f"🤖 Ошибка: {str(e)[:50]}..."
+        
     finally:
+        # ГАРАНТИРОВАННО сбрасываем флаг даже при ошибке
         is_trading = False
+        logger.info(f"🔄 Флаг is_trading сброшен после сессии #{session_count}")
 
 def run_trading_session(force_mode=False):
     """Запуск торговой сессии в отдельном потоке"""
@@ -1298,6 +1319,70 @@ def check_gigachat():
             result['problem'] = f'Base64 error: {str(e)}'
     
     return jsonify(result)
+
+# В конце app.py ДОБАВИТЬ роут для теста OpenRouter:
+
+@app.route('/test_openrouter')
+async def test_openrouter():
+    """Тест OpenRouter API"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {os.getenv('OPENROUTER_API_TOKEN')}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com"
+        }
+        
+        data = {
+            "model": "google/gemini-2.0-flash:free",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 10,
+            "temperature": 0.1
+        }
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=data
+            )
+            
+            return jsonify({
+                "status": response.status_code,
+                "success": response.status_code == 200,
+                "response": response.text[:200] if response.status_code != 200 else "OK"
+            })
+            
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route('/check_secret')
+def check_secret():
+    """Проверка формата GigaChat secret"""
+    import base64
+    
+    secret = os.getenv('GIGACHAT_CLIENT_SECRET', '')
+    client_id = os.getenv('GIGACHAT_CLIENT_ID', '')
+    
+    try:
+        decoded = base64.b64decode(secret).decode('utf-8')
+        is_base64 = True
+        parts = decoded.split(':')
+        
+        return jsonify({
+            "is_base64": is_base64,
+            "original_length": len(secret),
+            "decoded": decoded[:50] + "..." if len(decoded) > 50 else decoded,
+            "parts_count": len(parts),
+            "client_id_match": parts[0] == client_id if len(parts) > 0 else False,
+            "has_secret": len(parts) > 1,
+            "secret_preview": parts[1][:10] + "..." if len(parts) > 1 and len(parts[1]) > 10 else parts[1] if len(parts) > 1 else None
+        })
+    except:
+        return jsonify({
+            "is_base64": False,
+            "original_length": len(secret),
+            "client_id": client_id[:20] + "..." if len(client_id) > 20 else client_id
+        })
 
 if __name__ == '__main__':
     # Запуск планировщика
