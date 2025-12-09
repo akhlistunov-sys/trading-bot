@@ -1,4 +1,4 @@
-# app.py - ПОЛНЫЙ ОБНОВЛЁННЫЙ ФАЙЛ
+# app.py - ПОЛНАЯ РАБОЧАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ
 from flask import Flask, jsonify, render_template_string
 import datetime
 import time
@@ -45,7 +45,7 @@ logger.info("=" * 60)
 # ТЕПЕРЬ импортируем наши модули
 from news_fetcher import NewsFetcher
 from nlp_engine import NlpEngine
-from decision_engine import DecisionEngine  # Проверить что класс называется DecisionEngine (с заглавной D)
+from decision_engine import DecisionEngine
 from tinkoff_executor import TinkoffExecutor
 from virtual_portfolio import VirtualPortfolioPro
 from enhanced_analyzer import EnhancedAnalyzer
@@ -97,388 +97,337 @@ decision_engine = DecisionEngine(risk_manager=risk_manager)
 
 logger.info("✅ Все модули инициализированы")
 
-# HTML шаблон для светлого интерфейса
-HTML_TEMPLATE = """
+# HTML шаблон для светлого интерфейса (АДАПТИВНЫЙ ДЛЯ ТЕЛЕФОНА)
+HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Новостной Трейдер v3.0</title>
+    <title>AI Трейдер v3.0</title>
     <meta http-equiv="refresh" content="30">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
         
         body {
-            font-family: 'Arial', 'Helvetica', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            background: #f8fafc;
             color: #334155;
-            line-height: 1.6;
-            min-height: 100vh;
-            padding: 20px;
+            line-height: 1.5;
+            padding: 10px;
+            font-size: 14px;
         }
         
         .container {
-            max-width: 1400px;
+            max-width: 100%;
             margin: 0 auto;
-            padding: 20px;
         }
         
-        /* Шапка */
+        /* Шапка - компактная */
         .header {
             background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
             color: white;
-            padding: 25px 30px;
-            border-radius: 16px;
-            margin-bottom: 30px;
-            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
         }
         
         .header h1 {
-            font-size: 2.2rem;
-            margin-bottom: 8px;
+            font-size: 1.4rem;
+            margin-bottom: 6px;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
         }
         
         .header p {
             opacity: 0.9;
-            font-size: 1.05rem;
+            font-size: 0.9rem;
+            margin: 3px 0;
         }
         
-        /* Сетка карточек */
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 20px;
-            margin-bottom: 25px;
-        }
-        
-        /* Карточки */
+        /* Карточки - адаптивные */
         .card {
             background: white;
-            border-radius: 14px;
-            padding: 22px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
             border: 1px solid #e2e8f0;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        
-        .card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
         }
         
         .card h3 {
             color: #1e293b;
-            margin-bottom: 18px;
-            padding-bottom: 12px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
             border-bottom: 2px solid #e2e8f0;
-            font-size: 1.3rem;
+            font-size: 1.1rem;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
         
-        /* Статистика */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
+        /* Статистика в строку */
+        .stats-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
         }
         
         .stat-item {
+            flex: 1;
+            min-width: 120px;
             background: #f8fafc;
-            padding: 14px;
-            border-radius: 10px;
+            padding: 10px;
+            border-radius: 8px;
             text-align: center;
             border: 1px solid #e2e8f0;
         }
         
         .stat-value {
-            font-size: 1.8rem;
+            font-size: 1.4rem;
             font-weight: bold;
             color: #1d4ed8;
-            margin: 8px 0;
+            margin: 5px 0;
         }
         
         .stat-label {
-            font-size: 0.9rem;
+            font-size: 0.75rem;
             color: #64748b;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
         }
         
         /* Цвета для прибыли/убытков */
-        .positive {
-            color: #10b981;
-            font-weight: bold;
-        }
+        .positive { color: #10b981; font-weight: bold; }
+        .negative { color: #ef4444; font-weight: bold; }
         
-        .negative {
-            color: #ef4444;
-            font-weight: bold;
-        }
-        
-        /* Кнопки */
-        .button-group {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-top: 20px;
-        }
-        
-        .btn {
-            display: inline-flex;
-            align-items: center;
+        /* Кнопки управления - адаптивные */
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 8px;
-            padding: 12px 22px;
-            border-radius: 10px;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 0.95rem;
-            transition: all 0.2s ease;
-            border: none;
-            cursor: pointer;
-        }
-        
-        .btn-primary {
-            background: #3b82f6;
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            background: #2563eb;
-            transform: translateY(-2px);
-        }
-        
-        .btn-success {
-            background: #10b981;
-            color: white;
-        }
-        
-        .btn-success:hover {
-            background: #0da271;
-        }
-        
-        .btn-warning {
-            background: #f59e0b;
-            color: white;
-        }
-        
-        .btn-warning:hover {
-            background: #d97706;
-        }
-        
-        .btn-danger {
-            background: #ef4444;
-            color: white;
-        }
-        
-        .btn-danger:hover {
-            background: #dc2626;
-        }
-        
-        /* Список сигналов */
-        .signal-list {
             margin-top: 15px;
         }
         
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 10px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+            text-align: center;
+        }
+        
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        
+        .btn-success { background: #10b981; color: white; }
+        .btn-success:hover { background: #0da271; }
+        
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn-warning:hover { background: #d97706; }
+        
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        
+        /* Сигналы */
         .signal-item {
             background: #f8fafc;
             border-left: 4px solid #3b82f6;
-            padding: 15px;
-            margin-bottom: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
             border-radius: 8px;
-            border: 1px solid #e2e8f0
+            border: 1px solid #e2e8f0;
         }
         
-        .signal-item.buy {
-            border-left-color: #10b981;
-        }
-        
-        .signal-item.sell {
-            border-left-color: #ef4444;
-        }
+        .signal-item.buy { border-left-color: #10b981; }
+        .signal-item.sell { border-left-color: #ef4444; }
         
         .signal-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
         
         .signal-ticker {
             font-weight: bold;
-            font-size: 1.1rem;
+            font-size: 1.05rem;
         }
         
         .signal-confidence {
             background: #e0e7ff;
             color: #1d4ed8;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 0.85rem;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
         }
         
-        /* Футер */
-        .footer {
-            text-align: center;
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #e2e8f0;
-            color: #64748b;
-            font-size: 0.9rem;
-        }
-        
-        /* Адаптивность */
-        @media (max-width: 768px) {
-            .container { padding: 15px; }
-            .header { padding: 20px; }
-            .header h1 { font-size: 1.8rem; }
-            .grid { grid-template-columns: 1fr; }
-            .button-group { flex-direction: column; }
-            .btn { justify-content: center; }
-        }
-        
-        /* Иконки */
-        .icon {
-            font-size: 1.2em;
-            vertical-align: middle;
-        }
-        
-        /* Дополнительные стили для pipeline */
-        .pipeline-stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
+        /* Pipeline статистика */
+        .pipeline-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
             margin-top: 10px;
         }
         
         .pipeline-stat {
+            flex: 1;
+            min-width: 70px;
             background: #e0e7ff;
-            padding: 10px;
-            border-radius: 8px;
+            padding: 8px;
+            border-radius: 6px;
             text-align: center;
-            font-size: 0.9rem;
+            font-size: 0.8rem;
         }
         
         .pipeline-label {
-            font-size: 0.8rem;
+            font-size: 0.7rem;
             color: #4f46e5;
         }
         
         .pipeline-value {
             font-weight: bold;
-            font-size: 1.1rem;
+            font-size: 0.95rem;
             color: #1e40af;
         }
+        
+        /* Футер */
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #e2e8f0;
+            color: #64748b;
+            font-size: 0.8rem;
+        }
+        
+        /* Улучшения для мобильных */
+        @media (max-width: 480px) {
+            body { padding: 8px; }
+            .header { padding: 12px; }
+            .header h1 { font-size: 1.2rem; }
+            .card { padding: 12px; }
+            .stat-item { min-width: 100px; }
+            .button-grid { grid-template-columns: repeat(2, 1fr); }
+            .btn { font-size: 0.8rem; padding: 8px; }
+        }
+        
+        /* Иконки */
+        .icon { font-size: 1.1em; }
     </style>
 </head>
 <body>
     <div class="container">
         <!-- Шапка -->
         <div class="header">
-            <h1>
-                <span class="icon">🤖</span> 
-                AI Новостной Трейдер "Sentiment Hunter" v3.0
-            </h1>
-            <p><strong>⚡ Режим:</strong> Агрессивное тестирование | Signal Pipeline</p>
-            <p><strong>🎯 Архитектура:</strong> GigaChat + OpenRouter + Finam + Risk Management</p>
+            <h1><span class="icon">🤖</span> AI Трейдер "Sentiment Hunter"</h1>
+            <p><strong>⚡ Режим:</strong> Агрессивное тестирование</p>
+            <p><strong>🏦 Архитектура:</strong> GigaChat + Risk Management</p>
         </div>
         
-        <!-- Основные метрики -->
-        <div class="grid">
-            <div class="card">
-                <h3><span class="icon">📊</span> Состояние системы</h3>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <div class="stat-label">Статус</div>
-                        <div class="stat-value" style="font-size: 1.2rem;">{{ bot_status }}</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Аптайм</div>
-                        <div class="stat-value">{{ uptime }}</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Сессии</div>
-                        <div class="stat-value">{{ session_count }}</div>
-                    </div>
+        <!-- Состояние системы -->
+        <div class="card">
+            <h3><span class="icon">📊</span> Состояние системы</h3>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-label">Статус</div>
+                    <div class="stat-value" style="font-size: 1rem;">{{ bot_status }}</div>
                 </div>
-                <p><strong>🕒 Последняя торговля:</strong> {{ last_trading_time }}</p>
-                <p><strong>📈 Запросов к системе:</strong> {{ request_count }}</p>
-                <p><strong>🧠 Pipeline:</strong> {{ pipeline_efficiency }}% эффективность</p>
+                <div class="stat-item">
+                    <div class="stat-label">Аптайм</div>
+                    <div class="stat-value">{{ uptime }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Сессии</div>
+                    <div class="stat-value">{{ session_count }}</div>
+                </div>
             </div>
-            
-            <div class="card">
-                <h3><span class="icon">💰</span> Финансовые показатели</h3>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <div class="stat-label">Портфель</div>
-                        <div class="stat-value">{{ "%.2f"|format(virtual_portfolio_value) }} ₽</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Доходность</div>
-                        <div class="stat-value {% if total_virtual_return >= 0 %}positive{% else %}negative{% endif %}">
-                            {{ "%+.2f"|format(total_virtual_return) }}%
-                        </div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Прибыль</div>
-                        <div class="stat-value {% if total_virtual_profit >= 0 %}positive{% else %}negative{% endif %}">
-                            {{ "%+.2f"|format(total_virtual_profit) }} ₽
-                        </div>
+            <p><strong>🕒 Последняя торговля:</strong> {{ last_trading_time }}</p>
+            <p><strong>📈 Запросов:</strong> {{ request_count }}</p>
+            <p><strong>🧠 Pipeline:</strong> {{ pipeline_efficiency }}% эффективность</p>
+        </div>
+        
+        <!-- Финансы -->
+        <div class="card">
+            <h3><span class="icon">💰</span> Финансы</h3>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-label">Портфель</div>
+                    <div class="stat-value">{{ "%.0f"|format(virtual_portfolio_value) }}₽</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Доходность</div>
+                    <div class="stat-value {% if total_virtual_return >= 0 %}positive{% else %}negative{% endif %}">
+                        {{ "%+.1f"|format(total_virtual_return) }}%
                     </div>
                 </div>
-                <div class="pipeline-stats">
-                    <div class="pipeline-stat">
-                        <div class="pipeline-label">Риск/сделку</div>
-                        <div class="pipeline-value">{{ risk_per_trade }}%</div>
-                    </div>
-                    <div class="pipeline-stat">
-                        <div class="pipeline-label">Стоп-лосс</div>
-                        <div class="pipeline-value">{{ stop_loss }}%</div>
-                    </div>
-                    <div class="pipeline-stat">
-                        <div class="pipeline-label">Тейк-профит</div>
-                        <div class="pipeline-value">{{ take_profit }}%</div>
+                <div class="stat-item">
+                    <div class="stat-label">Прибыль</div>
+                    <div class="stat-value {% if total_virtual_profit >= 0 %}positive{% else %}negative{% endif %}">
+                        {{ "%+.0f"|format(total_virtual_profit) }}₽
                     </div>
                 </div>
             </div>
-            
-            <div class="card">
-                <h3><span class="icon">📰</span> Анализ новостей</h3>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <div class="stat-label">Новостей</div>
-                        <div class="stat-value">{{ last_news_count }}</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Сигналов</div>
-                        <div class="stat-value">{{ last_signals|length }}</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Активных позиций</div>
-                        <div class="stat-value">{{ virtual_positions|length }}</div>
-                    </div>
+            <div class="pipeline-row">
+                <div class="pipeline-stat">
+                    <div class="pipeline-label">Риск/сделку</div>
+                    <div class="pipeline-value">{{ risk_per_trade }}%</div>
                 </div>
-                <p><strong>🧠 Провайдер:</strong> {{ ai_provider }}</p>
-                <p><strong>✅ Источники:</strong> {{ sources_status }}</p>
-                <p><strong>🔧 Finam:</strong> {{ finam_status }}</p>
-                <p><strong>🎯 Отфильтровано:</strong> {{ filtered_percent }}% новостей</p>
+                <div class="pipeline-stat">
+                    <div class="pipeline-label">Стоп-лосс</div>
+                    <div class="pipeline-value">{{ stop_loss }}%</div>
+                </div>
+                <div class="pipeline-stat">
+                    <div class="pipeline-label">Тейк-профит</div>
+                    <div class="pipeline-value">{{ take_profit }}%</div>
+                </div>
             </div>
+        </div>
+        
+        <!-- Анализ новостей -->
+        <div class="card">
+            <h3><span class="icon">📰</span> Анализ новостей</h3>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-label">Новостей</div>
+                    <div class="stat-value">{{ last_news_count }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Сигналов</div>
+                    <div class="stat-value">{{ last_signals|length }}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Позиций</div>
+                    <div class="stat-value">{{ virtual_positions|length }}</div>
+                </div>
+            </div>
+            <p><strong>🧠 Провайдер:</strong> {{ ai_provider|upper }}</p>
+            <p><strong>🔧 Finam:</strong> {{ finam_status }}</p>
+            <p><strong>🎯 Отфильтровано:</strong> {{ filtered_percent }}% новостей</p>
         </div>
         
         <!-- Pipeline статистика -->
         {% if pipeline_stats %}
         <div class="card">
-            <h3><span class="icon">⚙️</span> Pipeline статистика</h3>
-            <div class="pipeline-stats">
+            <h3><span class="icon">⚙️</span> Pipeline</h3>
+            <div class="pipeline-row">
                 <div class="pipeline-stat">
-                    <div class="pipeline-label">Всего новостей</div>
+                    <div class="pipeline-label">Новостей</div>
                     <div class="pipeline-value">{{ pipeline_stats.total_news }}</div>
                 </div>
                 <div class="pipeline-stat">
@@ -494,87 +443,75 @@ HTML_TEMPLATE = """
                     <div class="pipeline-value">{{ pipeline_stats.verified_signals }}</div>
                 </div>
             </div>
-            <p style="margin-top: 10px;">
-                <small>Эффективность: {{ pipeline_stats.efficiency }}% | 
-                Filter rate: {{ pipeline_stats.filter_rate_percent }}% | 
-                Signal rate: {{ pipeline_stats.signal_rate_percent }}%</small>
-            </p>
         </div>
         {% endif %}
         
         <!-- Последние сигналы -->
         {% if last_signals %}
         <div class="card">
-            <h3><span class="icon">🚨</span> Последние торговые сигналы</h3>
-            <div class="signal-list">
-                {% for signal in last_signals[:5] %}
-                <div class="signal-item {{ signal.action|lower }}">
-                    <div class="signal-header">
-                        <div class="signal-ticker">
-                            <span class="icon">
-                                {% if signal.action == 'BUY' %}🟢{% else %}🔴{% endif %}
-                            </span>
-                            {{ signal.action }} {{ signal.ticker }}
-                            <span style="font-size: 0.8rem; color: #64748b; margin-left: 10px;">
-                                x{{ signal.position_size }}
-                            </span>
-                        </div>
-                        <div class="signal-confidence">
-                            Confidence: {{ "%.2f"|format(signal.confidence) }}
-                        </div>
+            <h3><span class="icon">🚨</span> Последние сигналы</h3>
+            {% for signal in last_signals[:3] %}
+            <div class="signal-item {{ signal.action|lower }}">
+                <div class="signal-header">
+                    <div class="signal-ticker">
+                        <span class="icon">
+                            {% if signal.action == 'BUY' %}🟢{% else %}🔴{% endif %}
+                        </span>
+                        {{ signal.action }} {{ signal.ticker }}
+                        <span style="font-size: 0.8rem; color: #64748b; margin-left: 8px;">
+                            x{{ signal.position_size }}
+                        </span>
                     </div>
-                    <p><strong>Событие:</strong> {{ signal.event_type|capitalize }}</p>
-                    <p><strong>Тональность:</strong> {{ signal.sentiment }} (Impact: {{ signal.impact_score }}/10)</p>
-                    <p><strong>Провайдер:</strong> {{ signal.ai_provider|default('simple')|upper }}</p>
-                    <p><strong>Причина:</strong> {{ signal.reason[:100] }}{% if signal.reason|length > 100 %}...{% endif %}</p>
-                    <p><strong>💰 Стоимость:</strong> {{ "%.0f"|format(signal.position_value) }} руб.</p>
-                    <p><small><strong>Время:</strong> {{ signal.timestamp }}</small></p>
+                    <div class="signal-confidence">
+                        {{ "%.2f"|format(signal.confidence) }}
+                    </div>
                 </div>
-                {% endfor %}
+                <p><strong>Событие:</strong> {{ signal.event_type|capitalize }}</p>
+                <p><strong>Тональность:</strong> {{ signal.sentiment }} (Impact: {{ signal.impact_score }})</p>
+                <p><strong>💰 Стоимость:</strong> {{ "%.0f"|format(signal.position_value) }} руб.</p>
+                <p style="font-size: 0.8rem;"><strong>Время:</strong> {{ signal.timestamp[11:19] }}</p>
             </div>
+            {% endfor %}
         </div>
         {% endif %}
         
-        <!-- Кнопки управления -->
+        <!-- Управление -->
         <div class="card">
-            <h3><span class="icon">⚡</span> Управление системой</h3>
-            <div class="button-group">
+            <h3><span class="icon">⚡</span> Управление</h3>
+            <div class="button-grid">
                 <a href="/force" class="btn btn-success">
-                    <span class="icon">🚀</span> Принудительный запуск
+                    <span class="icon">🚀</span> Запуск
                 </a>
                 <a href="/trades" class="btn btn-warning">
-                    <span class="icon">📋</span> История сделок
+                    <span class="icon">📋</span> Сделки
                 </a>
                 <a href="/status" class="btn btn-primary">
-                    <span class="icon">📊</span> JSON статус
+                    <span class="icon">📊</span> Статус
                 </a>
                 <a href="/analyze" class="btn btn-primary">
-                    <span class="icon">🧠</span> Только анализ
-                </a>
-                <a href="/stats" class="btn btn-primary">
-                    <span class="icon">📈</span> Детальная статистика
+                    <span class="icon">🧠</span> Анализ
                 </a>
                 <a href="/test_providers" class="btn btn-warning">
-                    <span class="icon">🔧</span> Тест провайдеров
+                    <span class="icon">🔧</span> Тесты
                 </a>
                 <a href="/test_pipeline" class="btn btn-success">
-                    <span class="icon">⚙️</span> Тест Pipeline
+                    <span class="icon">⚙️</span> Pipeline
                 </a>
                 <a href="/env" class="btn btn-danger">
-                    <span class="icon">⚙️</span> Переменные окружения
+                    <span class="icon">⚙️</span> Переменные
                 </a>
             </div>
         </div>
         
         <!-- Футер -->
         <div class="footer">
-            <p><em>🤖 AI Новостной Трейдер "Sentiment Hunter" v3.0 | Signal Pipeline Architecture</em></p>
-            <p>Версия 3.0 | Риск-менеджмент: 1.5% на сделку, -1.5% стоп, +3.0% тейк</p>
+            <p><em>🤖 AI Трейдер "Sentiment Hunter" v3.0 | Signal Pipeline</em></p>
+            <p>Риск-менеджмент: {{ risk_per_trade }}% на сделку</p>
         </div>
     </div>
 </body>
 </html>
-"""
+'''
 
 async def trading_session_async(force_mode=False):
     """Основная торговая сессия с SignalPipeline"""
@@ -765,13 +702,12 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(1)
 
-# ==================== НОВЫЕ ЭНДПОИНТЫ ====================
+# ==================== СИНХРОННЫЕ ВРАППЕРЫ ДЛЯ ASYNC ФУНКЦИЙ ====================
 
 @app.route('/test_pipeline')
-async def test_pipeline():
+def test_pipeline():
     """Тест SignalPipeline"""
-    try:
-        # Тестовая новость
+    async def _test():
         test_news = {
             'id': 'test_001',
             'title': 'Сбербанк рекомендовал увеличение дивидендов на 20%',
@@ -781,7 +717,6 @@ async def test_pipeline():
             'published_at': datetime.datetime.now().isoformat()
         }
         
-        # Обработка через pipeline
         signal = await signal_pipeline._process_single_news(test_news)
         
         return jsonify({
@@ -791,7 +726,9 @@ async def test_pipeline():
             'pipeline_stats': signal_pipeline.get_stats(),
             'timestamp': datetime.datetime.now().isoformat()
         })
-        
+    
+    try:
+        return asyncio.run(_test())
     except Exception as e:
         return jsonify({
             'pipeline_test': 'error',
@@ -800,15 +737,13 @@ async def test_pipeline():
         })
 
 @app.route('/test_finam')
-async def test_finam():
+def test_finam():
     """Тест Finam API"""
-    try:
+    async def _test():
         test_ticker = 'SBER'
         
-        # Тест цены
         price = await tinkoff_executor.get_price_from_finam(test_ticker)
         
-        # Тест верификации
         test_analysis = {
             'tickers': [test_ticker],
             'event_type': 'dividend',
@@ -826,7 +761,9 @@ async def test_finam():
             'liquid_tickers_count': len(finam_verifier.liquid_tickers),
             'timestamp': datetime.datetime.now().isoformat()
         })
-        
+    
+    try:
+        return asyncio.run(_test())
     except Exception as e:
         return jsonify({
             'finam_test': 'error',
@@ -835,17 +772,16 @@ async def test_finam():
         })
 
 @app.route('/test_gigachat_fixed')
-async def test_gigachat_fixed():
+def test_gigachat_fixed():
     """Тест исправленного GigaChat API"""
     
-    if not os.getenv('GIGACHAT_CLIENT_ID') or not os.getenv('GIGACHAT_CLIENT_SECRET'):
-        return jsonify({
-            "error": "Требуются GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET",
-            "status": "configuration_error"
-        })
-    
-    try:
-        # Тест напрямую через nlp_engine
+    async def _test():
+        if not os.getenv('GIGACHAT_CLIENT_ID') or not os.getenv('GIGACHAT_CLIENT_SECRET'):
+            return jsonify({
+                "error": "Требуются GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET",
+                "status": "configuration_error"
+            })
+        
         test_news = {
             'id': 'giga_test',
             'title': 'Тест GigaChat API',
@@ -861,7 +797,9 @@ async def test_gigachat_fixed():
             "nlp_stats": nlp_engine.get_stats(),
             "timestamp": datetime.datetime.now().isoformat()
         })
-            
+    
+    try:
+        return asyncio.run(_test())
     except Exception as e:
         return jsonify({
             "status": "exception",
@@ -869,7 +807,7 @@ async def test_gigachat_fixed():
             "timestamp": datetime.datetime.now().isoformat()
         })
 
-# ==================== СУЩЕСТВУЮЩИЕ ЭНДПОИНТЫ ====================
+# ==================== ОСНОВНЫЕ РОУТЫ ====================
 
 @app.route('/')
 def home():
@@ -890,7 +828,6 @@ def home():
     
     # Статус источников
     finam_status = "✅" if finam_verifier.api_token else "❌"
-    sources_status = f"✅ NewsAPI, ✅ Zenserp, ✅ RSS, {finam_status} Finam"
     
     # Pipeline статистика
     pipeline_efficiency = pipeline_stats.get('efficiency', 0) if pipeline_stats else 0
@@ -917,7 +854,6 @@ def home():
         last_signals=last_signals[:5] if last_signals else [],
         virtual_positions=virtual_positions,
         ai_provider=ai_provider,
-        sources_status=sources_status,
         finam_status=finam_status,
         pipeline_stats=pipeline_stats,
         pipeline_efficiency=round(pipeline_efficiency, 1),
@@ -944,7 +880,6 @@ def show_trades():
     portfolio_stats = virtual_portfolio.get_stats()
     risk_stats = risk_manager.get_risk_stats()
     
-    # HTML для истории сделок
     trades_html = ""
     for trade in trade_history[-20:]:
         if trade['action'] == 'BUY':
@@ -968,53 +903,52 @@ def show_trades():
             profit_html = f"<br><span class='{profit_class}'>💰 Прибыль: {trade.get('profit', 0):+.2f} руб.</span>"
         
         trades_html += f"""
-        <div style="background: {color}20; border-left: 4px solid {color}; padding: 15px; margin: 10px 0; border-radius: 5px;">
-            {icon}{ai_badge} {trade['timestamp']} | {trade.get('strategy', 'AI News Trading')}
+        <div style="background: {color}20; border-left: 4px solid {color}; padding: 12px; margin: 8px 0; border-radius: 6px;">
+            {icon}{ai_badge} {trade['timestamp'][11:19]} | {trade.get('strategy', 'AI Trading')}
             <br><strong>{trade['action']} {trade['ticker']}</strong> x{trade['size']} по {trade['price']} руб.
             {profit_html}
-            <br><small>💡 {trade.get('reason', '')}</small>
+            <br><small>💡 {trade.get('reason', '')[:80]}</small>
         </div>
         """
     
     return f"""
     <html>
         <head>
-            <title>История Сделок v3.0</title>
+            <title>История Сделок</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body {{ font-family: Arial; margin: 40px; background: #f8fafc; color: #334155; }}
+                body {{ font-family: Arial; margin: 20px; background: #f8fafc; color: #334155; font-size: 14px; }}
                 .positive {{ color: #10b981; }}
                 .negative {{ color: #ef4444; }}
-                .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }}
-                .stats {{ background: #f1f5f9; padding: 20px; border-radius: 10px; margin: 20px 0; }}
-                .risk-params {{ background: #e0e7ff; padding: 15px; border-radius: 8px; margin: 10px 0; }}
+                .container {{ max-width: 100%; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }}
+                .stats {{ background: #f1f5f9; padding: 15px; border-radius: 8px; margin: 15px 0; }}
+                .risk-params {{ background: #e0e7ff; padding: 12px; border-radius: 6px; margin: 8px 0; }}
+                .back-btn {{ background: #3b82f6; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; display: inline-block; margin-top: 15px; }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>📋 История Сделок v3.0</h1>
+                <h2>📋 История Сделок</h2>
                 
                 <div class="stats">
-                    <h3>📊 Общая статистика</h3>
+                    <h4>📊 Статистика</h4>
                     <p><strong>Всего сделок:</strong> {len(trade_history)}</p>
-                    <p><strong>Портфель:</strong> {virtual_portfolio.get_total_value({}):.2f} руб. 
-                    (<span class="{{'positive' if total_virtual_return >= 0 else 'negative'}}">{total_virtual_return:+.2f}%</span>)</p>
-                    <p><strong>Общая прибыль:</strong> <span class="{{'positive' if total_virtual_profit >= 0 else 'negative'}}">{total_virtual_profit:+.2f} руб.</span></p>
-                    <p><strong>Win Rate:</strong> {portfolio_stats.get('win_rate', 0):.1f}%</p>
+                    <p><strong>Портфель:</strong> {virtual_portfolio.get_total_value({}):.0f} руб. 
+                    (<span class="{{'positive' if total_virtual_return >= 0 else 'negative'}}">{total_virtual_return:+.1f}%</span>)</p>
+                    <p><strong>Общая прибыль:</strong> <span class="{{'positive' if total_virtual_profit >= 0 else 'negative'}}">{total_virtual_profit:+.0f} руб.</span></p>
                 </div>
                 
                 <div class="risk-params">
-                    <h3>🎯 Параметры риска</h3>
+                    <h4>🎯 Риски</h4>
                     <p><strong>Риск на сделку:</strong> {risk_stats.get('risk_per_trade', 1.5)}%</p>
                     <p><strong>Стоп-лосс:</strong> {risk_stats['parameters']['stop_loss_pct']}%</p>
                     <p><strong>Тейк-профит:</strong> {risk_stats['parameters']['take_profit_pct']}%</p>
-                    <p><strong>Макс. на тикер:</strong> {risk_stats.get('max_risk_per_ticker', 4.5)}%</p>
-                    <p><strong>Макс. на сектор:</strong> {risk_stats.get('max_risk_per_sector', 12)}%</p>
                 </div>
                 
                 {trades_html if trade_history else "<p>Сделок еще нет</p>"}
                 
-                <p style="margin-top: 30px;">
-                    <a href="/" style="background: #3b82f6; color: white; padding: 12px 20px; text-decoration: none; border-radius: 8px; display: inline-block;">← На главную</a>
+                <p style="margin-top: 20px;">
+                    <a href="/" class="back-btn">← На главную</a>
                 </p>
             </div>
         </body>
@@ -1066,7 +1000,6 @@ def detailed_stats():
     portfolio_stats = virtual_portfolio.get_stats()
     risk_stats = risk_manager.get_risk_stats()
     
-    # Разделение сделок по провайдерам
     ai_trades = [t for t in trade_history if t.get('ai_generated')]
     simple_trades = [t for t in trade_history if not t.get('ai_generated')]
     
@@ -1076,7 +1009,6 @@ def detailed_stats():
     ai_avg = sum(ai_profits)/len(ai_profits) if ai_profits else 0
     simple_avg = sum(simple_profits)/len(simple_profits) if simple_profits else 0
     
-    # Pipeline эффективность
     pipeline_efficiency = pipeline_stats.get('efficiency', 0) if pipeline_stats else 0
     
     return jsonify({
@@ -1112,15 +1044,21 @@ def detailed_stats():
     })
 
 @app.route('/test_moex')
-async def test_moex():
+def test_moex():
     """Тест MOEX API"""
-    result = await tinkoff_executor.test_connections()
-    return jsonify(result)
+    async def _test():
+        result = await tinkoff_executor.test_connections()
+        return jsonify(result)
+    
+    try:
+        return asyncio.run(_test())
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 @app.route('/analyze')
 def analyze_only():
     """Только анализ без торговли"""
-    async def analyze_async():
+    async def _analyze():
         all_news = await news_fetcher.fetch_all_news()
         
         # Обработка через pipeline
@@ -1136,8 +1074,11 @@ def analyze_only():
             "prefilter_stats": news_prefilter.get_filter_stats(all_news[:10])
         }
     
-    result = asyncio.run(analyze_async())
-    return jsonify(result)
+    try:
+        result = asyncio.run(_analyze())
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 @app.route('/test_providers')
 def test_providers_page():
@@ -1164,64 +1105,56 @@ def test_providers_page():
         }
     }
     
-    return f"""
+    return f'''
     <html>
         <head>
-            <title>Тест ИИ-провайдеров v3.0</title>
+            <title>Тест провайдеров</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body {{ font-family: Arial; margin: 40px; background: #f8fafc; color: #334155; }}
-                .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }}
-                .provider {{ padding: 20px; margin: 15px 0; border-radius: 10px; border-left: 4px solid #3b82f6; background: #f1f5f9; }}
-                .btn {{ display: inline-block; padding: 12px 24px; margin: 10px 5px; border-radius: 8px; text-decoration: none; color: white; font-weight: bold; }}
+                body {{ font-family: Arial; margin: 20px; background: #f8fafc; color: #334155; font-size: 14px; }}
+                .container {{ max-width: 100%; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }}
+                .provider {{ padding: 15px; margin: 12px 0; border-radius: 8px; border-left: 4px solid #3b82f6; background: #f1f5f9; }}
+                .btn {{ display: inline-block; padding: 10px 16px; margin: 6px 4px; border-radius: 6px; text-decoration: none; color: white; font-weight: 600; font-size: 0.9rem; }}
                 .btn-test {{ background: #10b981; }}
-                .btn-test:hover {{ background: #0da271; }}
                 .btn-back {{ background: #3b82f6; }}
-                .btn-back:hover {{ background: #2563eb; }}
                 .btn-pipeline {{ background: #8b5cf6; }}
-                .btn-pipeline:hover {{ background: #7c3aed; }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>🔧 Тестирование провайдеров v3.0</h1>
-                <p>Проверка работы всех компонентов системы</p>
+                <h2>🔧 Тестирование провайдеров</h2>
                 
                 <div class="provider">
-                    <h3>🏦 GigaChat API (Сбербанк) - OAuth 2.0 Basic</h3>
+                    <h4>🏦 GigaChat API</h4>
                     <p><strong>Статус:</strong> {providers_info['gigachat']['status']}</p>
                     <p><strong>Client ID:</strong> {providers_info['gigachat']['client_id_preview']}</p>
-                    <p><strong>Client Secret:</strong> {providers_info['gigachat']['client_secret_preview']}</p>
                     <p><strong>Scope:</strong> GIGACHAT_API_PERS</p>
                     <a href="/test_gigachat_fixed" class="btn btn-test">🧪 Тест GigaChat</a>
                 </div>
                 
                 <div class="provider">
-                    <h3>🌍 OpenRouter API</h3>
+                    <h4>🌍 OpenRouter</h4>
                     <p><strong>Статус:</strong> {providers_info['openrouter']['status']}</p>
-                    <p><strong>Токен:</strong> {providers_info['openrouter']['token_preview']}</p>
                     <p><strong>Модели:</strong> {providers_info['openrouter']['models_count']} бесплатных</p>
-                    <p><strong>Endpoint:</strong> https://openrouter.ai/api/v1/chat/completions</p>
                 </div>
                 
                 <div class="provider">
-                    <h3>🏦 Finam API</h3>
+                    <h4>🏦 Finam API</h4>
                     <p><strong>Статус:</strong> {providers_info['finam']['status']}</p>
-                    <p><strong>Токен:</strong> {providers_info['finam']['token_preview']}</p>
-                    <p><strong>Ликвидных тикеров:</strong> {providers_info['finam']['liquid_tickers']}</p>
-                    <p><strong>Client ID:</strong> {finam_verifier.client_id}</p>
+                    <p><strong>Тикеров:</strong> {providers_info['finam']['liquid_tickers']}</p>
                     <a href="/test_finam" class="btn btn-test">🧪 Тест Finam</a>
                 </div>
                 
-                <div style="margin-top: 30px;">
+                <div style="margin-top: 20px;">
                     <a href="/" class="btn btn-back">← На главную</a>
-                    <a href="/test_pipeline" class="btn btn-pipeline">⚙️ Тест Pipeline</a>
-                    <a href="/analyze" class="btn btn-test">📰 Тест полного анализа</a>
-                    <a href="/force" class="btn btn-test">🚀 Тестовая торговля</a>
+                    <a href="/test_pipeline" class="btn btn-pipeline">⚙️ Pipeline</a>
+                    <a href="/analyze" class="btn btn-test">📰 Анализ</a>
+                    <a href="/force" class="btn btn-test">🚀 Торговля</a>
                 </div>
             </div>
         </body>
     </html>
-    """
+    '''
 
 @app.route('/env')
 def show_env():
@@ -1230,7 +1163,6 @@ def show_env():
     env_vars = {}
     for key, value in sorted(os.environ.items()):
         if any(word in key.upper() for word in ['API', 'TOKEN', 'KEY', 'SECRET']):
-            # Маскируем чувствительные данные
             if value and len(value) > 8:
                 masked = value[:4] + '*' * max(0, len(value)-8) + value[-4:]
                 env_vars[key] = f"{masked} (длина: {len(value)})"
@@ -1246,21 +1178,19 @@ def show_env():
     })
 
 @app.route('/debug_prefilter')
-async def debug_prefilter():
+def debug_prefilter():
     """Отладка префильтра"""
-    async def test_async():
+    async def _debug():
         all_news = await news_fetcher.fetch_all_news()
         
         debug_results = []
         for i, news in enumerate(all_news[:5]):
             is_tradable = news_prefilter.is_tradable(news)
             
-            # Анализируем почему не проходит
             title = news.get('title', '')[:100]
             content = news.get('content', '')[:200] or news.get('description', '')[:200]
             text = f"{title} {content}".lower()
             
-            # Проверяем ключевые слова
             accept_count = sum(1 for kw in news_prefilter.accept_keywords if kw in text)
             reject_count = sum(1 for kw in news_prefilter.reject_keywords if kw in text)
             
@@ -1275,16 +1205,18 @@ async def debug_prefilter():
         
         return debug_results
     
-    results = await test_async()
-    return jsonify({
-        "debug": results,
-        "prefilter_stats": news_prefilter.get_filter_stats(all_news[:10])
-    })
+    try:
+        results = asyncio.run(_debug())
+        return jsonify({
+            "debug": results,
+            "prefilter_stats": news_prefilter.get_filter_stats(all_news[:10])
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 @app.route('/check_gigachat')
 def check_gigachat():
     """Проверка настроек GigaChat"""
-    import os
     import base64
     
     client_id = os.getenv('GIGACHAT_CLIENT_ID')
@@ -1300,7 +1232,6 @@ def check_gigachat():
         'problem': None
     }
     
-    # Проверки
     if not client_id or not client_secret:
         result['problem'] = 'Missing client_id or client_secret'
     elif len(client_id) < 5 or len(client_secret) < 5:
@@ -1308,7 +1239,6 @@ def check_gigachat():
     elif 'GIGACHAT_API_PERS' not in scope:
         result['problem'] = f'Wrong scope: {scope}, should be GIGACHAT_API_PERS'
     else:
-        # Проверяем base64
         try:
             auth_string = f"{client_id}:{client_secret}"
             auth_base64 = base64.b64encode(auth_string.encode()).decode()
@@ -1320,12 +1250,12 @@ def check_gigachat():
     
     return jsonify(result)
 
-# В конце app.py ДОБАВИТЬ роут для теста OpenRouter:
-
 @app.route('/test_openrouter')
-async def test_openrouter():
+def test_openrouter():
     """Тест OpenRouter API"""
-    try:
+    async def _test():
+        import httpx
+        
         headers = {
             "Authorization": f"Bearer {os.getenv('OPENROUTER_API_TOKEN')}",
             "Content-Type": "application/json",
@@ -1351,7 +1281,9 @@ async def test_openrouter():
                 "success": response.status_code == 200,
                 "response": response.text[:200] if response.status_code != 200 else "OK"
             })
-            
+    
+    try:
+        return asyncio.run(_test())
     except Exception as e:
         return jsonify({"error": str(e)})
 
@@ -1394,7 +1326,6 @@ if __name__ == '__main__':
     # Инициализация системы
     logger.info("=" * 60)
     logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' v3.0 ЗАПУЩЕН!")
-    logger.info("🎯 Архитектура: Signal Pipeline с Risk Management")
     logger.info(f"🏦 Основной провайдер: GigaChat API {'✅' if nlp_engine.providers['gigachat']['enabled'] else '❌'}")
     logger.info(f"🌍 Резервный провайдер: OpenRouter API {'✅' if nlp_engine.providers['openrouter']['enabled'] else '❌'}")
     logger.info(f"🏦 Finam API: {'✅' if finam_verifier.api_token else '❌'}")
