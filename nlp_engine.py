@@ -1,4 +1,4 @@
-# nlp_engine.py - ИСПРАВЛЕННАЯ ВЕРСИЯ БЕЗ ОШИБОК ОТСТУПОВ
+# nlp_engine.py - ИСПРАВЛЕННЫЙ С СЕМАФОРОМ ДЛЯ GIGACHAT
 import logging
 import json
 import os
@@ -15,43 +15,25 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ==================== GIGACHAT OAUTH 2.0 (РАБОЧАЯ ВЕРСИЯ ДЛЯ RENDER) ====================
+# ==================== GIGACHAT OAUTH 2.0 ====================
 class GigaChatAuth:
-    """Класс для авторизации в GigaChat API (для Render с base64 secret)"""
+    """Класс для авторизации в GigaChat API"""
     
     def __init__(self, client_id: str, client_secret: str, scope: str = "GIGACHAT_API_PERS"):
         self.client_id = client_id
-        self.client_secret = client_secret  # УЖЕ base64: MDE5YWM0ZTEt...:d07fd7a0-...
+        self.client_secret = client_secret  # УЖЕ base64
         self.scope = scope
         self.access_token = None
         self.token_expiry = 0
         
     async def get_access_token(self) -> Optional[str]:
-        """Получение access token - ПРОСТАЯ версия для Render"""
+        """Получение access token"""
         
         if self.access_token and time.time() < self.token_expiry - 60:
             return self.access_token
         
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
-        
-        # Уникальный RqUID
         rquid = str(uuid.uuid4())
-        
-        # Client Secret УЖЕ готовый base64!
-        # MDE5YWM0ZTEtOTQxNi03YzViLTg3MjItZmQ1YjA5ZDg1ODQ4OmQwN2ZkN2EwLWIzZTAtNGRhNC05NzA2LWU2ZWI5NjM4ODI0Mw==
-        # Декодируется в: 019ac4e1-...:d07fd7a0-...
-        
-        # Декодируем для проверки
-        try:
-            decoded = base64.b64decode(self.client_secret).decode('utf-8')
-            logger.info(f"🔑 Декодированный secret: {decoded[:50]}...")
-            if ':' in decoded:
-                client_id_part, secret_part = decoded.split(':', 1)
-                logger.info(f"🔑 Client ID в secret: {client_id_part[:20]}...")
-                logger.info(f"🔑 Secret часть: {secret_part[:20]}...")
-        except Exception as e:
-            logger.error(f"❌ Ошибка декодирования base64: {e}")
-            # Продолжаем с тем что есть
         
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -62,7 +44,6 @@ class GigaChatAuth:
         
         data = {'scope': self.scope}
         
-        # ТОЛЬКО verify=False для Render
         try:
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 response = await client.post(url, headers=headers, data=data)
@@ -75,20 +56,18 @@ class GigaChatAuth:
                     logger.info(f"✅ GigaChat токен получен! (RqUID: {rquid[:8]})")
                     return self.access_token
                 else:
-                    logger.error(f"❌ Ошибка {response.status_code}: {response.text[:100]}")
-                    # Логируем headers для отладки
-                    logger.debug(f"Headers: {headers}")
+                    logger.error(f"❌ GigaChat ошибка {response.status_code}: {response.text[:100]}")
                     return None
         except Exception as e:
-            logger.error(f"❌ Ошибка запроса: {str(e)[:100]}")
+            logger.error(f"❌ Ошибка запроса GigaChat: {str(e)[:100]}")
             return None
 
 # ==================== ОСНОВНОЙ NLP КЛАСС ====================
 class NlpEngine:
-    """Гибридный ИИ-движок с ротацией моделей OpenRouter"""
+    """Гибридный ИИ-движок с последовательной обработкой GigaChat"""
     
     def __init__(self):
-        logger.info("🔧 Инициализация гибридного NLP-движка для Render...")
+        logger.info("🔧 Инициализация гибридного NLP-движка...")
         
         # Настраиваем SSL сертификаты для Render
         self._setup_ssl_for_render()
@@ -99,12 +78,18 @@ class NlpEngine:
         
         self.gigachat_auth = None
         if gigachat_client_id and gigachat_client_secret:
+            # УБИРАЕМ КАВЫЧКИ если есть
+            if gigachat_client_secret.startswith('"') and gigachat_client_secret.endswith('"'):
+                gigachat_client_secret = gigachat_client_secret[1:-1]
+                logger.warning("⚠️ Убрал кавычки из GIGACHAT_CLIENT_SECRET")
+            
             self.gigachat_auth = GigaChatAuth(gigachat_client_id, gigachat_client_secret, gigachat_scope)
             logger.info(f"🔑 GigaChat OAuth настроен")
-            logger.info(f"   Client ID: {gigachat_client_id[:20]}...")
-            logger.info(f"   Client Secret (base64): {gigachat_client_secret[:30]}...")
         else:
             logger.warning("⚠️ GigaChat отключен: нет Client ID или Client Secret")
+        
+        # СЕМАФОР для ограничения 1 одновременного запроса к GigaChat
+        self.gigachat_semaphore = asyncio.Semaphore(1)
         
         # Ротация моделей OpenRouter (бесплатные)
         self.openrouter_models = [
@@ -142,12 +127,13 @@ class NlpEngine:
             'successful_requests': 0,
             'by_provider': {p: {'requests': 0, 'success': 0} for p in self.provider_priority},
             'cache_hits': 0,
-            'cache_misses': 0
+            'cache_misses': 0,
+            'gigachat_queue_waits': 0
         }
         
         logger.info(f"🤖 Гибридный NLP-движок инициализирован")
         logger.info(f"📊 Доступные провайдеры: {', '.join(self.provider_priority)}")
-        logger.info(f"🧠 OpenRouter модели: {len(self.openrouter_models)} бесплатных")
+        logger.info(f"🔒 GigaChat семафор: 1 одновременный запрос")
     
     def _setup_ssl_for_render(self):
         """Настройка SSL сертификатов для облачного деплоя"""
@@ -155,36 +141,16 @@ class NlpEngine:
             certs_dir = Path("certs")
             certs_dir.mkdir(exist_ok=True)
             
-            sber_cert_path = certs_dir / "sber_root.crt"
-            if not sber_cert_path.exists():
-                try:
-                    import requests
-                    response = requests.get(
-                        "https://storage.yandexcloud.net/cloud-certs/CA.pem",
-                        timeout=10
-                    )
-                    if response.status_code == 200:
-                        sber_cert_path.write_text(response.text)
-                        logger.info("✅ Сертификат Sber скачан")
-                except Exception as e:
-                    logger.debug(f"⚠️ Не удалось скачать сертификат Sber: {e}")
-            
             combined_cert = certs_dir / "combined_ca.crt"
             
             with open(combined_cert, "wb") as outfile:
                 with open(certifi.where(), "rb") as certifi_file:
                     outfile.write(certifi_file.read())
-                
-                if sber_cert_path.exists():
-                    with open(sber_cert_path, "rb") as sber_file:
-                        outfile.write(b"\n")
-                        outfile.write(sber_file.read())
             
             logger.info(f"✅ SSL настроен для Render: {combined_cert}")
             
         except Exception as e:
             logger.warning(f"⚠️ Ошибка настройки SSL для Render: {e}")
-            logger.info("ℹ️ Использую системный SSL контекст")
     
     def _create_prompt_for_provider(self, news_item: Dict, provider: str, model: str = None) -> Dict:
         """Создание промпта для финансового анализа"""
@@ -237,12 +203,11 @@ class NlpEngine:
                     {"role": "user", "content": f"Новость: {title}\n\n{content[:200]}"}
                 ],
                 "temperature": 0.1,
-                "max_tokens": 400,
-                "response_format": {{"type": "json_object"}}
+                "max_tokens": 400
             }
     
     async def _make_gigachat_request(self, prompt_data: Dict) -> Optional[Dict]:
-        """Запрос к GigaChat API"""
+        """Запрос к GigaChat API с ограничением 1 запрос"""
         if not self.gigachat_auth:
             return None
         
@@ -259,7 +224,6 @@ class NlpEngine:
             'X-Request-ID': str(uuid.uuid4())
         }
         
-        # ТОЛЬКО verify=False
         try:
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 response = await client.post(url, headers=headers, json=prompt_data)
@@ -278,40 +242,8 @@ class NlpEngine:
             logger.error(f"❌ Ошибка запроса к GigaChat: {str(e)[:100]}")
             return None
     
-    async def _try_openrouter_model(self, model: str, news_item: Dict) -> Optional[Dict]:
-        """Попытка запроса к конкретной модели OpenRouter"""
-        try:
-            prompt_data = self._create_prompt_for_provider(news_item, 'openrouter', model)
-            
-            headers = {
-                "Authorization": f"Bearer {self.providers['openrouter']['token']}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com"
-            }
-            
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.post(
-                    url=self.providers['openrouter']['url'],
-                    headers=headers,
-                    json=prompt_data
-                )
-                
-                if response.status_code == 200:
-                    return response.json()
-                elif response.status_code == 429:
-                    logger.debug(f"   ⚠️ OpenRouter {model}: rate limit")
-                    await asyncio.sleep(1)
-                    return None
-                else:
-                    logger.debug(f"   ⚠️ OpenRouter {model}: {response.status_code}")
-                    return None
-                    
-        except Exception as e:
-            logger.debug(f"   ⚠️ OpenRouter {model} ошибка: {str(e)[:50]}")
-            return None
-    
     async def analyze_news(self, news_item: Dict) -> Optional[Dict]:
-        """Анализ новости с ротацией провайдеров и моделей"""
+        """Анализ новости с последовательной обработкой GigaChat"""
         
         self.stats['total_requests'] += 1
         cache_key = self._create_cache_key(news_item)
@@ -322,31 +254,39 @@ class NlpEngine:
         
         self.stats['cache_misses'] += 1
         
-        # 1. Пробуем GigaChat
+        # 1. Пробуем GigaChat с ОГРАНИЧЕНИЕМ 1 запрос
         if 'gigachat' in self.provider_priority and self.providers['gigachat']['enabled']:
-            logger.info("📡 Пробую провайдер: GIGACHAT")
+            logger.info("📡 Пробую провайдер: GIGACHAT (с очередью)")
             self.stats['by_provider']['gigachat']['requests'] += 1
             
-            try:
-                prompt_data = self._create_prompt_for_provider(news_item, 'gigachat')
-                response_data = await self._make_gigachat_request(prompt_data)
+            # ОЖИДАЕМ СЕМАФОР для ограничения 1 запроса
+            async with self.gigachat_semaphore:
+                self.stats['gigachat_queue_waits'] += 1
+                logger.debug(f"   🔒 Получил доступ к GigaChat (очередь)")
                 
-                if response_data:
-                    ai_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                try:
+                    prompt_data = self._create_prompt_for_provider(news_item, 'gigachat')
+                    response_data = await self._make_gigachat_request(prompt_data)
                     
-                    if ai_response:
-                        analysis_result = self._parse_ai_response(ai_response, news_item, 'gigachat')
+                    if response_data:
+                        ai_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
                         
-                        if analysis_result:
-                            self.stats['successful_requests'] += 1
-                            self.stats['by_provider']['gigachat']['success'] += 1
-                            self.analysis_cache[cache_key] = analysis_result
-                            logger.info("   ✅ GigaChat: успешный анализ")
-                            return analysis_result
-            except Exception as e:
-                logger.debug(f"   ⚠️ GigaChat ошибка: {str(e)[:50]}")
+                        if ai_response:
+                            analysis_result = self._parse_ai_response(ai_response, news_item, 'gigachat')
+                            
+                            if analysis_result:
+                                self.stats['successful_requests'] += 1
+                                self.stats['by_provider']['gigachat']['success'] += 1
+                                self.analysis_cache[cache_key] = analysis_result
+                                logger.info("   ✅ GigaChat: успешный анализ")
+                                return analysis_result
+                except Exception as e:
+                    logger.debug(f"   ⚠️ GigaChat ошибка: {str(e)[:50]}")
+                
+                # Пауза между запросами GigaChat
+                await asyncio.sleep(1)
         
-        # 2. Пробуем OpenRouter с ротацией моделей
+        # 2. Пробуем OpenRouter (можно параллельно, но ограничим для стабильности)
         if 'openrouter' in self.provider_priority and self.providers['openrouter']['enabled']:
             logger.info("📡 Пробую провайдер: OPENROUTER")
             
@@ -354,20 +294,38 @@ class NlpEngine:
                 self.stats['by_provider']['openrouter']['requests'] += 1
                 logger.debug(f"   Модель: {model}")
                 
-                response_data = await self._try_openrouter_model(model, news_item)
-                
-                if response_data:
-                    ai_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                try:
+                    prompt_data = self._create_prompt_for_provider(news_item, 'openrouter', model)
                     
-                    if ai_response:
-                        analysis_result = self._parse_ai_response(ai_response, news_item, 'openrouter')
+                    headers = {
+                        "Authorization": f"Bearer {self.providers['openrouter']['token']}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://github.com"
+                    }
+                    
+                    async with httpx.AsyncClient(timeout=20.0) as client:
+                        response = await client.post(
+                            url=self.providers['openrouter']['url'],
+                            headers=headers,
+                            json=prompt_data
+                        )
                         
-                        if analysis_result:
-                            self.stats['successful_requests'] += 1
-                            self.stats['by_provider']['openrouter']['success'] += 1
-                            self.analysis_cache[cache_key] = analysis_result
-                            logger.info(f"   ✅ OpenRouter ({model}): успешный анализ")
-                            return analysis_result
+                        if response.status_code == 200:
+                            response_data = response.json()
+                            ai_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            
+                            if ai_response:
+                                analysis_result = self._parse_ai_response(ai_response, news_item, 'openrouter')
+                                
+                                if analysis_result:
+                                    self.stats['successful_requests'] += 1
+                                    self.stats['by_provider']['openrouter']['success'] += 1
+                                    self.analysis_cache[cache_key] = analysis_result
+                                    logger.info(f"   ✅ OpenRouter ({model}): успешный анализ")
+                                    return analysis_result
+                        
+                except Exception as e:
+                    logger.debug(f"   ⚠️ OpenRouter {model} ошибка: {str(e)[:50]}")
                 
                 await asyncio.sleep(0.5)
         
@@ -375,7 +333,7 @@ class NlpEngine:
         return None
     
     def _parse_ai_response(self, response: str, news_item: Dict, provider: str) -> Optional[Dict]:
-        """Парсинг ответа ИИ в структурированный анализ"""
+        """Парсинг ответа ИИ (оставляем как было)"""
         try:
             response = response.strip()
             
@@ -467,6 +425,7 @@ class NlpEngine:
             'success_rate': round(success_rate, 1),
             'cache_hits': self.stats['cache_hits'],
             'cache_misses': self.stats['cache_misses'],
+            'gigachat_queue_waits': self.stats['gigachat_queue_waits'],
             'current_provider': self.get_current_provider(),
             'openrouter_models': len(self.openrouter_models),
             'providers': provider_stats
