@@ -1,4 +1,4 @@
-# nlp_engine.py - ПОЛНЫЙ КОД С УЛУЧШЕННЫМИ ПРОМПТАМИ
+# nlp_engine.py - ИСПРАВЛЕННЫЙ КОД (сохраняем финансовый анализ)
 import logging
 import json
 import os
@@ -71,7 +71,7 @@ class GigaChatAuth:
 
 # ==================== ОСНОВНОЙ NLP КЛАСС ====================
 class NlpEngine:
-    """Гибридный ИИ-движок с улучшенными промптами"""
+    """Гибридный ИИ-движок с УЛУЧШЕННЫМИ промптами"""
     
     def __init__(self):
         logger.info("🔧 Инициализация гибридного NLP-движка...")
@@ -161,7 +161,7 @@ class NlpEngine:
             logger.warning(f"⚠️ Ошибка настройки SSL для Render: {e}")
     
     def _create_prompt_for_provider(self, news_item: Dict, provider: str, model: str = None) -> Dict:
-        """Создание промпта для финансового анализа - УЛУЧШЕННЫЙ"""
+        """Создание промпта для финансового анализа - УЛУЧШЕННЫЙ ДЛЯ МОЕКС"""
         
         title = news_item.get('title', '')[:200]
         description = news_item.get('description', '')
@@ -173,53 +173,83 @@ class NlpEngine:
         
         if provider == 'gigachat':
             if has_russian or (not has_english and not has_russian):
-                # Русские или смешанные новости
-                prompt_text = f"""Анализируй финансовую новость для трейдинга на российском рынке.
+                # Русские новости - УЛУЧШЕННЫЙ ПРОМПТ
+                prompt_text = f"""Ты финансовый аналитик MOEX. Проанализируй новость для торговли акциями.
 
 Новость: {title}
 
-Задача:
-1. Найди упоминания российских компаний и их биржевые тикеры MOEX (пример: Сбербанк -> SBER, Газпром -> GAZP, Лукойл -> LKOH, Норникель -> GMKN).
-2. Определи тип события: dividend (дивиденды), earnings_report (отчетность), merger_acquisition (слияние/поглощение), regulatory (регуляторные новости), market_update (общие новости).
-3. Оцени тональность: positive, negative, neutral.
-4. Оцени силу влияния на цену (1-10): 1=слабое, 10=сильное.
-5. Краткое обоснование (1 предложение).
+ВАЖНО: Даже если новость короткая или общая — найди ВОЗМОЖНЫЕ тикеры MOEX.
 
-Верни ТОЛЬКО JSON в формате:
+Примеры:
+- "Сбербанк" или "банки" → SBER
+- "Газпром" или "нефтегаз" → GAZP
+- "Рынок акций", "биржевые торги" → SBER, GAZP, LKOH (голубые фишки)
+- "Дивиденды", "отчетность" → ищи компании
+- "Нефть", "энергетика" → ROSN, LKOH, GAZP
+- "Металлы" → GMKN, ALRS, POLY
+- "Технологии" → YNDX, OZON
+- "Розничная торговля" → MGNT, FIVE
+- "Финансы", "банковский сектор" → SBER, VTBR, TCSG
+
+Основные тикеры MOEX: SBER, GAZP, LKOH, ROSN, NVTK, GMKN, YNDX, OZON, MOEX, VTBR, TCSG, MGNT, FIVE, TATN, ALRS, CHMF, NLMK, SNGS, MTSS, AFKS, RTKM, PHOR
+
+Задача:
+1. Найди ВСЕ возможные тикеры (даже если упоминание косвенное)
+2. Тип события: dividend (дивиденды), earnings_report (отчетность), regulatory (новости регуляторов), market_update (рыночные новости)
+3. Тональность: positive, negative, neutral
+4. Влияние на цену (1-10): 1=минимальное, 10=сильное
+5. Краткая причина (1 фраза)
+
+Верни ТОЛЬКО JSON:
 {{
-    "tickers": ["SBER"],
-    "event_type": "dividend",
-    "sentiment": "positive",
-    "impact_score": 7,
-    "reason": "Совет директоров рекомендовал увеличение дивидендов"
+    "tickers": ["SBER", "GAZP"],
+    "event_type": "market_update",
+    "sentiment": "neutral",
+    "impact_score": 5,
+    "reason": "Упоминание банковского сектора"
 }}
 
-Если тикеров нет или новость не финансовая: {{"tickers": [], "reason": "No financial content"}}
-Только JSON, никакого текста!"""
+Если тикеров НЕТ: {{"tickers": [], "reason": "Тикеры не найдены"}}
+Только JSON!"""
             else:
                 # Английские новости
-                prompt_text = f"""Analyze financial news for trading on Russian stock market.
+                prompt_text = f"""You are a MOEX financial analyst. Analyze news for stock trading.
 
 News: {title}
 
-Task:
-1. Find Russian companies mentioned and their MOEX tickers (example: Sberbank -> SBER, Gazprom -> GAZP, Lukoil -> LKOH, Norilsk Nickel -> GMKN, Yandex -> YNDX, Ozon -> OZON).
-2. Determine event type: dividend, earnings_report, merger_acquisition, regulatory, market_update.
-3. Assess sentiment: positive, negative, neutral.
-4. Rate impact on stock price (1-10): 1=weak, 10=strong.
-5. Brief reason (one sentence).
+IMPORTANT: Even if the news is short or general — find POSSIBLE MOEX tickers.
 
-Return ONLY JSON format:
+Examples:
+- "Sberbank" or "banks" → SBER
+- "Gazprom" or "oil and gas" → GAZP
+- "Stock market", "exchange trading" → SBER, GAZP, LKOH (blue chips)
+- "Dividends", "earnings" → look for companies
+- "Oil", "energy" → ROSN, LKOH, GAZP
+- "Metals" → GMKN, ALRS, POLY
+- "Technology" → YNDX, OZON
+- "Retail" → MGNT, FIVE
+- "Finance", "banking sector" → SBER, VTBR, TCSG
+
+Main MOEX tickers: SBER, GAZP, LKOH, ROSN, NVTK, GMKN, YNDX, OZON, MOEX, VTBR, TCSG, MGNT, FIVE, TATN, ALRS, CHMF, NLMK, SNGS, MTSS, AFKS, RTKM, PHOR
+
+Task:
+1. Find ALL possible tickers (even indirect mentions)
+2. Event type: dividend, earnings_report, regulatory, market_update
+3. Sentiment: positive, negative, neutral
+4. Impact on price (1-10): 1=minimal, 10=strong
+5. Brief reason (1 phrase)
+
+Return ONLY JSON:
 {{
-    "tickers": ["SBER"],
-    "event_type": "dividend",
-    "sentiment": "positive",
-    "impact_score": 7,
-    "reason": "Board recommended dividend increase"
+    "tickers": ["SBER", "GAZP"],
+    "event_type": "market_update",
+    "sentiment": "neutral",
+    "impact_score": 5,
+    "reason": "Banking sector mentioned"
 }}
 
-If no tickers or not financial news: {{"tickers": [], "reason": "No financial content"}}
-ONLY JSON, no other text!"""
+If NO tickers: {{"tickers": [], "reason": "No tickers found"}}
+ONLY JSON!"""
             
             return {
                 "model": "GigaChat-2",
@@ -313,7 +343,7 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
         
         # 1. Пробуем GigaChat с ОГРАНИЧЕНИЕМ 1 запрос
         if 'gigachat' in self.provider_priority and self.providers['gigachat']['enabled']:
-            logger.debug("📡 Пробую провайдер: GIGACHAT (с очередью)")
+            logger.debug(f"📡 Пробую GigaChat: {news_item.get('title', '')[:50]}")
             self.stats['by_provider']['gigachat']['requests'] += 1
             
             # ОЖИДАЕМ СЕМАФОР для ограничения 1 запроса
@@ -328,18 +358,21 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
                         ai_response = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
                         
                         if ai_response:
+                            # ЛОГИРУЕМ сырой ответ для отладки
+                            logger.debug(f"📥 GigaChat raw: {ai_response[:100]}")
+                            
                             analysis_result = self._parse_ai_response(ai_response, news_item, 'gigachat')
                             
                             if analysis_result:
                                 self.stats['successful_requests'] += 1
                                 self.stats['by_provider']['gigachat']['success'] += 1
                                 self.analysis_cache[cache_key] = analysis_result
-                                logger.debug(f"   ✅ GigaChat: успешный анализ")
+                                logger.debug(f"✅ GigaChat: {len(analysis_result['tickers'])} тикеров")
                                 return analysis_result
                             else:
-                                logger.debug(f"   ⚠️ GigaChat: анализ не получен (парсинг или no financial)")
+                                logger.debug(f"⚠️ GigaChat: анализ не получен")
                 except Exception as e:
-                    logger.debug(f"   ⚠️ GigaChat ошибка: {str(e)[:50]}")
+                    logger.debug(f"⚠️ GigaChat ошибка: {str(e)[:50]}")
                 
                 # Пауза между запросами GigaChat
                 await asyncio.sleep(1)
@@ -378,24 +411,24 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
                                     self.stats['successful_requests'] += 1
                                     self.stats['by_provider']['openrouter']['success'] += 1
                                     self.analysis_cache[cache_key] = analysis_result
-                                    logger.debug(f"   ✅ OpenRouter ({model}): успешный анализ")
+                                    logger.debug(f"✅ OpenRouter ({model}): успешный анализ")
                                     return analysis_result
                         
                 except Exception as e:
-                    logger.debug(f"   ⚠️ OpenRouter {model} ошибка: {str(e)[:50]}")
+                    logger.debug(f"⚠️ OpenRouter {model} ошибка: {str(e)[:50]}")
                 
                 await asyncio.sleep(0.5)
         
-        logger.debug("ℹ️ Все ИИ-провайдеры недоступны или не нашли финансового содержания")
+        logger.debug("ℹ️ Все ИИ-провайдеры недоступны или не нашли тикеров")
         return None
     
     def _parse_ai_response(self, response: str, news_item: Dict, provider: str) -> Optional[Dict]:
-        """Парсинг ответа ИИ - УЛУЧШЕННЫЙ"""
+        """Парсинг ответа ИИ - СОХРАНЯЕМ ОРИГИНАЛЬНУЮ ЛОГИКУ"""
         try:
             response = response.strip()
             
             # Логируем ответ для отладки
-            logger.debug(f"   📥 {provider} raw response: {response[:200]}...")
+            logger.debug(f"🔍 {provider} raw response: {response[:200]}...")
             
             # Пытаемся найти JSON разными способами
             json_str = None
@@ -434,10 +467,10 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
             
             if not json_str:
                 self.stats['parsing_errors'] += 1
-                logger.debug(f"   ❌ {provider}: Не найден JSON в ответе")
+                logger.debug(f"❌ {provider}: Не найден JSON в ответе")
                 return None
             
-            logger.debug(f"   🔍 {provider} JSON found: {json_str[:150]}...")
+            logger.debug(f"✅ {provider} JSON найден: {json_str[:150]}...")
             
             data = json.loads(json_str)
             
@@ -445,11 +478,11 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
             if not isinstance(tickers, list):
                 tickers = []
             
-            # Проверяем reason на "no financial content"
+            # ВАЖНО: Сохраняем оригинальную проверку
             reason = data.get('reason', '').lower()
-            if not tickers:
+            if not tickers or 'no financial' in reason or 'not financial' in reason:
                 self.stats['no_financial_content'] += 1
-                logger.debug(f"   ⚠️ {provider}: Нет финансового содержания: {reason}")
+                logger.debug(f"⚠️ {provider}: Нет финансового содержания: {reason}")
                 return None
             
             valid_tickers = []
@@ -462,7 +495,7 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
             
             if not valid_tickers:
                 self.stats['no_financial_content'] += 1
-                logger.debug(f"   ⚠️ {provider}: Нет валидных тикеров")
+                logger.debug(f"⚠️ {provider}: Нет валидных тикеров")
                 return None
             
             event_type = data.get('event_type', 'market_update')
@@ -506,16 +539,16 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
                 'simple_analysis': False
             }
             
-            logger.debug(f"   📊 {provider}: {len(valid_tickers)} тикеров, {event_type}, {sentiment}, impact:{impact_score}")
+            logger.debug(f"📊 {provider}: {len(valid_tickers)} тикеров, {event_type}, {sentiment}, impact:{impact_score}")
             return result
             
         except json.JSONDecodeError as e:
             self.stats['parsing_errors'] += 1
-            logger.debug(f"   ❌ {provider}: Ошибка парсинга JSON: {str(e)[:50]}")
+            logger.debug(f"❌ {provider}: Ошибка парсинга JSON: {str(e)[:50]}")
             return None
         except Exception as e:
             self.stats['parsing_errors'] += 1
-            logger.debug(f"   ❌ {provider}: Ошибка парсинга: {str(e)[:50]}")
+            logger.debug(f"❌ {provider}: Ошибка парсинга: {str(e)[:50]}")
             return None
     
     def _create_cache_key(self, news_item: Dict) -> str:
