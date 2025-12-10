@@ -1,4 +1,4 @@
-а# app.py - ПОЛНАЯ РАБОЧАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ
+# app.py - ПОЛНАЯ РАБОЧАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ
 from flask import Flask, jsonify, render_template_string
 import datetime
 import time
