@@ -1,4 +1,4 @@
-# signal_pipeline.py
+# signal_pipeline.py - ПОСЛЕДОВАТЕЛЬНАЯ ОБРАБОТКА
 import logging
 import asyncio
 from datetime import datetime
@@ -8,7 +8,7 @@ import json
 logger = logging.getLogger(__name__)
 
 class SignalPipeline:
-    """Конвейер обработки новостей в торговые сигналы"""
+    """Конвейер обработки новостей с последовательной обработкой GigaChat"""
     
     def __init__(self, nlp_engine, finam_verifier, risk_manager, enhanced_analyzer, news_prefilter):
         self.nlp_engine = nlp_engine
@@ -26,33 +26,41 @@ class SignalPipeline:
             'pipeline_start': datetime.now().isoformat()
         }
         
-        logger.info("🚀 SignalPipeline инициализирован")
-        logger.info("   Этапы: PreFilter → NLP → Finam → RiskManager")
+        logger.info("🚀 SignalPipeline инициализирован с последовательной обработкой")
+        logger.info("   Этапы: PreFilter → EnhancedAnalyzer → NLP (последовательно)")
     
     async def process_news_batch(self, news_list: List[Dict]) -> List[Dict]:
-        """Пакетная обработка новостей"""
+        """Пакетная обработка новостей ПОСЛЕДОВАТЕЛЬНО"""
         
         signals = []
         self.stats['total_news'] += len(news_list)
         
-        logger.info(f"📊 Начало обработки {len(news_list)} новостей")
+        logger.info(f"📊 Начало ПОСЛЕДОВАТЕЛЬНОЙ обработки {len(news_list)} новостей")
         
-        # Параллельная обработка (но с лимитом)
-        batch_size = min(10, len(news_list))
-        
-        for i in range(0, len(news_list), batch_size):
-            batch = news_list[i:i+batch_size]
-            
-            batch_signals = await self._process_batch(batch)
-            signals.extend(batch_signals)
-            
-            # Пауза между батчами
-            if i + batch_size < len(news_list):
-                await asyncio.sleep(1)
+        # ПОСЛЕДОВАТЕЛЬНАЯ обработка (не параллельная!)
+        processed_count = 0
+        for news_item in news_list:
+            try:
+                signal = await self._process_single_news(news_item)
+                if signal:
+                    signals.append(signal)
+                    logger.info(f"   ✅ Обработана новость {processed_count + 1}/{len(news_list)}: найдено {len(signals)} сигналов")
+                else:
+                    logger.debug(f"   ⏭️ Новость {processed_count + 1}/{len(news_list)} пропущена")
+                
+                processed_count += 1
+                
+                # Пауза между обработкой новостей для GigaChat
+                if processed_count % 3 == 0:  # Каждые 3 новости
+                    await asyncio.sleep(2)
+                    
+            except Exception as e:
+                logger.error(f"❌ Ошибка обработки новости {processed_count + 1}: {str(e)[:100]}")
+                continue
         
         self.stats['executed_signals'] += len(signals)
         
-        logger.info(f"📊 Итоги обработки:")
+        logger.info(f"📊 Итоги ПОСЛЕДОВАТЕЛЬНОЙ обработки:")
         logger.info(f"   Новости: {self.stats['total_news']}")
         logger.info(f"   Отфильтровано: {self.stats['filtered_news']}")
         logger.info(f"   Проанализировано: {self.stats['analyzed_news']}")
@@ -60,41 +68,22 @@ class SignalPipeline:
         
         return signals
     
-    async def _process_batch(self, news_batch: List[Dict]) -> List[Dict]:
-        """Обработка батча новостей"""
-        batch_signals = []
-        
-        # Параллельная обработка каждой новости
-        tasks = []
-        for news_item in news_batch:
-            task = self._process_single_news(news_item)
-            tasks.append(task)
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for result in results:
-            if isinstance(result, Exception):
-                logger.error(f"❌ Ошибка обработки новости: {result}")
-                continue
-            
-            if result:
-                batch_signals.append(result)
-        
-        return batch_signals
-    
     async def _process_single_news(self, news_item: Dict) -> Optional[Dict]:
         """Обработка одной новости через все этапы"""
         
         # 1. Пре-фильтрация
         if not self.news_prefilter.is_tradable(news_item):
             self.stats['filtered_news'] += 1
+            logger.debug(f"   ❌ PreFilter отсеял: {news_item.get('title', '')[:50]}")
             return None
         
-        # 2. Быстрая проверка EnhancedAnalyzer
+        # 2. Быстрая проверка EnhancedAnalyzer (упрощенная)
         if not self.enhanced_analyzer.quick_filter(news_item):
+            logger.debug(f"   ❌ EnhancedAnalyzer отсеял: {news_item.get('title', '')[:50]}")
             return None
         
-        # 3. NLP анализ (GigaChat/OpenRouter)
+        # 3. NLP анализ (GigaChat/OpenRouter) - ПОСЛЕДОВАТЕЛЬНО
+        logger.debug(f"   📡 Отправляю в NLP: {news_item.get('title', '')[:60]}")
         nlp_analysis = await self.nlp_engine.analyze_news(news_item)
         
         # 4. Fallback: EnhancedAnalyzer если ИИ не сработал
@@ -102,17 +91,23 @@ class SignalPipeline:
             nlp_analysis = self.enhanced_analyzer.analyze_news(news_item)
             if nlp_analysis:
                 nlp_analysis['ai_provider'] = 'enhanced_fallback'
+                logger.debug(f"   🔧 Использую EnhancedAnalyzer fallback")
         
         if not nlp_analysis:
+            logger.debug(f"   ❌ NLP не дал анализа")
             return None
         
         self.stats['analyzed_news'] += 1
+        logger.debug(f"   ✅ NLP анализ получен от {nlp_analysis.get('ai_provider', 'unknown')}")
         
         # 5. Верификация через Finam
         verification = await self.finam_verifier.verify_signal(nlp_analysis)
         
         if not verification['valid']:
+            logger.debug(f"   ❌ Finam верификация не прошла: {verification.get('reason', '')}")
             return None
+        
+        logger.debug(f"   ✅ Finam верификация пройдена")
         
         # 6. Получение текущих цен
         tickers = verification.get('tickers', [])
@@ -133,7 +128,7 @@ class SignalPipeline:
             
             # Добавляем метаданные
             signal.update({
-                'pipeline_version': '2.0',
+                'pipeline_version': '2.1',
                 'processing_timestamp': datetime.now().isoformat(),
                 'verification_details': verification.get('details', {}),
                 'nlp_analysis': {
@@ -165,5 +160,6 @@ class SignalPipeline:
             'analysis_rate_percent': round(analysis_rate, 1),
             'signal_rate_percent': round(signal_rate, 1),
             'efficiency': round((self.stats['verified_signals'] / max(1, self.stats['analyzed_news'])) * 100, 1),
-            'current_time': datetime.now().isoformat()
+            'current_time': datetime.now().isoformat(),
+            'processing_mode': 'sequential_gigachat'
         }
