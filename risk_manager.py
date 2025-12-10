@@ -266,11 +266,13 @@ class RiskManager:
         # Добавляем новую позицию
         sector_value += new_position_value
         
-        # ФИКС: Проверяем что capital не ноль
-        if self.current_capital <= 0:
+        # ФИКС: Проверяем что capital не ноль и используем initial_capital как базу
+        capital_base = self.current_capital if self.current_capital > 0 else self.initial_capital
+        
+        if capital_base <= 0:
             return 0.0
         
-        return (sector_value / self.current_capital) * 100
+        return (sector_value / capital_base) * 100
     
     def _get_ticker_risk(self, ticker: str, new_position_value: float = 0) -> float:
         """Расчёт текущего риска тикера в % от капитала"""
@@ -283,11 +285,13 @@ class RiskManager:
         # Добавляем новую позицию
         ticker_value += new_position_value
         
-        # ФИКС: Проверяем что capital не ноль
-        if self.current_capital <= 0:
+        # ФИКС: Проверяем что capital не ноль и используем initial_capital как базу
+        capital_base = self.current_capital if self.current_capital > 0 else self.initial_capital
+        
+        if capital_base <= 0:
             return 0.0
         
-        return (ticker_value / self.current_capital) * 100
+        return (ticker_value / capital_base) * 100
     
     def _get_ticker_sector(self, ticker: str) -> str:
         """Получение сектора тикера"""
@@ -303,12 +307,10 @@ class RiskManager:
         """Обновление информации об открытых позициях"""
         self.open_positions = positions
         
-        # Пересчитываем текущий капитал
-        total_value = 0
-        for pos in positions.values():
-            total_value += pos.get('current_value', pos['size'] * pos['avg_price'])
-        
-        self.current_capital = total_value
+        # ФИКС: Восстанавливаем капитал если он обнулился
+        if self.current_capital <= 0 or self.current_capital != self.initial_capital:
+            self.current_capital = self.initial_capital
+            logger.info(f"💰 RiskManager: восстановлен капитал {self.current_capital:.0f} руб.")
     
     def get_risk_stats(self) -> Dict:
         """Получение статистики рисков - ИСПРАВЛЕННЫЙ"""
