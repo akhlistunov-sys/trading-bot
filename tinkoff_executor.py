@@ -13,8 +13,19 @@ class TinkoffExecutor:
     """Исполнительный модуль с Finam API и MOEX"""
     
     def __init__(self):
-        self.finam_token = os.getenv('FINAM_API_TOKEN', 'bbae67bd-2578-4b00-84bb-f8423f17756d')
+        # Finam JWT токен (из переменной окружения)
+        self.jwt_token = os.getenv('FINAM_API_TOKEN', '')
         self.finam_client_id = os.getenv('FINAM_CLIENT_ID', '621971R9IP3')
+        
+        # Инициализация FinamClient
+        self.finam_client = None
+        if self.jwt_token and self.finam_client_id:
+            try:
+                from finam_client import FinamClient
+                self.finam_client = FinamClient(self.jwt_token, self.finam_client_id)
+                logger.info(f"🏦 FinamClient инициализирован в TinkoffExecutor")
+            except Exception as e:
+                logger.error(f"❌ Ошибка инициализации FinamClient: {e}")
         
         # Маппинг тикеров
         self.ticker_mapping = {
@@ -48,29 +59,30 @@ class TinkoffExecutor:
             'RTKM': 65.30, 'PHOR': 6620.0, 'TRNFP': 155000.0, 'BANE': 210.0
         }
         
-        logger.info("🏦 TinkoffExecutor инициализирован с Finam API")
-        logger.info(f"   Finam токен: {self.finam_token[:8]}...")
+        logger.info("🏦 TinkoffExecutor инициализирован")
+        logger.info(f"   FinamClient: {'✅' if self.finam_client else '❌'}")
         logger.info(f"   Источники цен: {', '.join(self.price_sources)}")
         logger.info(f"   Тикеров в маппинге: {len(self.ticker_mapping)}")
     
     async def get_price_from_finam(self, ticker: str) -> Optional[float]:
-        """Получение цены с Finam API (ИСПРАВЛЕННЫЙ)"""
+        """Получение цены с Finam API через нового клиента"""
         finam_ticker = self.ticker_mapping.get(ticker.upper())
         if not finam_ticker:
             return None
         
-        try:
-            # ВРЕМЕННО ИСПОЛЬЗУЕМ MOEX вместо Finam (пока чиним Finam)
-            return await self.get_price_from_moex(ticker)
-            
-            # TODO: Когда починим FinamClient - раскомментировать:
-            # from finam_client import FinamClient
-            # finam_client = FinamClient(self.finam_token)
-            # return await finam_client.get_current_price(finam_ticker)
-            
-        except Exception as e:
-            logger.debug(f"   ⚠️ Finam price ошибка для {ticker}: {str(e)[:50]}")
-            return None
+        if self.finam_client:
+            try:
+                price = await self.finam_client.get_current_price(finam_ticker)
+                if price:
+                    logger.info(f"💰 Finam цена {ticker}: {price:.2f} руб.")
+                    return price
+                else:
+                    logger.debug(f"⚠️ Finam не вернул цену для {ticker}")
+            except Exception as e:
+                logger.debug(f"   ⚠️ Finam ошибка для {ticker}: {str(e)[:50]}")
+        
+        # Fallback если Finam недоступен
+        return None
     
     async def get_price_from_moex(self, ticker: str) -> Optional[float]:
         """Получение цены с MOEX (резерв)"""
@@ -120,7 +132,7 @@ class TinkoffExecutor:
                                         price = data_rows[0][idx]
                             
                             if price and price > 0:
-                                logger.debug(f"   ✅ MOEX цена {ticker}: {price}")
+                                logger.info(f"💰 MOEX цена {ticker}: {price:.2f} руб.")
                                 return float(price)
                                     
             except Exception as e:
@@ -137,15 +149,14 @@ class TinkoffExecutor:
         # Пробуем все источники по порядку
         for source in self.price_sources:
             if source == 'finam':
-                price = await self.get_price_from_finam(ticker_upper)
-                if price:
-                    logger.info(f"💰 Finam цена {ticker}: {price:.2f} руб.")
-                    return price
+                if self.finam_client:
+                    price = await self.get_price_from_finam(ticker_upper)
+                    if price:
+                        return price
             
             elif source == 'moex':
                 price = await self.get_price_from_moex(ticker_upper)
                 if price:
-                    logger.info(f"💰 MOEX цена {ticker}: {price:.2f} руб.")
                     return price
             
             elif source == 'fallback':
@@ -204,8 +215,8 @@ class TinkoffExecutor:
         return {
             'ticker': ticker.upper(),
             'available': available,
-            'has_finam_data': available,
-            'has_moex_data': available,
+            'has_finam_data': bool(self.finam_client),
+            'has_moex_data': True,
             'fallback_price': self.fallback_prices.get(ticker.upper()),
             'message': 'Тикер доступен' if available else 'Тикер не найден'
         }
@@ -222,12 +233,13 @@ class TinkoffExecutor:
         moex_price = await self.get_price_from_moex(test_ticker)
         
         return {
-            'finam_available': finam_price is not None,
+            'finam_available': bool(self.finam_client),
             'finam_price': finam_price,
             'moex_available': moex_price is not None,
             'moex_price': moex_price,
             'fallback_price': self.fallback_prices.get(test_ticker),
             'test_ticker': test_ticker,
             'tickers_count': len(self.ticker_mapping),
-            'sources_priority': self.price_sources
+            'sources_priority': self.price_sources,
+            'finam_client_initialized': bool(self.finam_client)
         }
