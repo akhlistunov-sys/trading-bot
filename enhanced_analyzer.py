@@ -1,4 +1,4 @@
-# enhanced_analyzer.py
+# enhanced_analyzer.py - ИСПРАВЛЕННЫЙ
 import re
 import logging
 from typing import List, Dict, Set
@@ -365,25 +365,49 @@ class EnhancedAnalyzer:
         return f"{tickers_str}: {event_name}, {sentiment_name} тональность, влияние: {impact_score}/10"
     
     def quick_filter(self, news_item: Dict) -> bool:
-        """Быстрая предфильтрация финансовых новостей"""
+        """Быстрая предфильтрация финансовых новостей - УПРОЩЕННАЯ ВЕРСИЯ"""
+        
+        # УПРОЩАЕМ: В тестовом режиме пропускаем больше новостей
         title = news_item.get('title', '').lower()
         content = news_item.get('content', '').lower() or news_item.get('description', '').lower()
         text = title + ' ' + content[:200]
         
-        # Проверяем наличие финансовых терминов
+        # 1. Проверяем наличие финансовых терминов (русские и английские)
         financial_terms = [
+            # Русские
             'акци', 'дивиденд', 'отчет', 'прибыль', 'выручка',
-            'квартал', 'финансов', 'сделка', 'слияни', 'поглощен',
-            'рост', 'падение', 'банк', 'компани', 'рынок'
+            'квартал', 'финанс', 'сделк', 'слияни', 'поглощен',
+            'рост', 'падение', 'банк', 'компани', 'рынок',
+            'бирж', 'инвест', 'трейд',
+            # Английские (для investing.com)
+            'stock', 'share', 'dividend', 'earnings', 'profit',
+            'revenue', 'quarter', 'financial', 'deal', 'merger',
+            'acquisition', 'growth', 'decline', 'bank', 'company',
+            'market', 'exchange', 'invest', 'trade'
         ]
         
         has_financial = any(term in text for term in financial_terms)
-        if not has_financial:
-            return False
         
-        # Проверяем наличие тикеров
+        # 2. Проверяем наличие тикеров или названий компаний
+        has_ticker = False
         for keyword in self.TICKER_MAP.keys():
             if keyword in text:
+                has_ticker = True
+                break
+        
+        # 3. ЛОГИКА ПРИНЯТИЯ (УПРОЩЕННАЯ):
+        # - Если есть финансовые термины ИЛИ тикеры → пропускаем
+        # - В тестовом режиме пропускаем больше
+        
+        trading_mode = 'AGGRESSIVE_TEST'  # Можно получить из os.getenv
+        
+        if trading_mode == 'AGGRESSIVE_TEST':
+            # В агрессивном тестовом режиме пропускаем почти все
+            if has_financial or has_ticker:
+                return True
+            # Даже если нет финансовых терминов, но есть длинный текст — пробуем
+            if len(text) > 50:  # Не очень короткие новости
                 return True
         
-        return False
+        # Обычный режим
+        return has_financial or has_ticker
