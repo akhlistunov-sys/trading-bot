@@ -827,7 +827,7 @@ def home():
     ai_provider = nlp_engine.provider_priority[0] if nlp_engine.provider_priority else "none"
     
     # Статус источников
-    finam_status = "✅" if finam_verifier.api_token else "❌"
+    finam_status = "✅" if finam_verifier.finam_client else "❌"
     
     # Pipeline статистика
     pipeline_efficiency = pipeline_stats.get('efficiency', 0) if pipeline_stats else 0
