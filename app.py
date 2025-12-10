@@ -989,7 +989,7 @@ def status():
         "providers_configured": {
             "gigachat": nlp_engine.providers['gigachat']['enabled'],
             "openrouter": nlp_engine.providers['openrouter']['enabled'],
-            "finam": bool(finam_verifier.api_token),  # ← Здесь
+            "finam": bool(finam_verifier.finam_client),  # ← Исправлено
             "enhanced_analyzer": True
         }
     })
@@ -1098,9 +1098,9 @@ def test_providers_page():
             'models_count': len(nlp_engine.openrouter_models)
         },
         'finam': {
-            'configured': bool(finam_verifier.api_token),
-            'status': '✅ Настроен' if finam_verifier.api_token else '❌ Не настроен',
-            'token_preview': finam_verifier.api_token[:8] + '...' if finam_verifier.api_token else 'Нет',
+            'configured': bool(finam_verifier.finam_client),
+            'status': '✅ Настроен' if finam_verifier.finam_client else '❌ Не настроен',
+            'token_preview': finam_verifier.jwt_token[:8] + '...' if finam_verifier.jwt_token else 'Нет',
             'liquid_tickers': len(finam_verifier.liquid_tickers)
         }
     }
