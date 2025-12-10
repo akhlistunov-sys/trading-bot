@@ -11,14 +11,17 @@ class RiskManager:
     """Управление рисками и расчёт параметров сделок"""
     
     def __init__(self, initial_capital: float = 100000):
-        # Агрессивные параметры риска
+        # Используем ТВОИ параметры из Environment Variables:
         self.risk_per_trade = float(os.getenv("RISK_PER_TRADE", "1.5"))  # 1.5% на сделку
-        self.max_risk_per_ticker = float(os.getenv("MAX_RISK_PER_TICKER", "4.5"))  # 4.5% на тикер
-        self.max_risk_per_sector = float(os.getenv("MAX_RISK_PER_SECTOR", "12.0"))  # 12% на сектор
-        self.stop_loss_pct = float(os.getenv("STOP_LOSS_PCT", "1.5"))  # -1.5%
-        self.take_profit_pct = float(os.getenv("TAKE_PROFIT_PCT", "3.0"))  # +3.0%
-        self.trailing_start = float(os.getenv("TRAILING_START", "2.0"))  # +2.0%
-        self.trailing_step = float(os.getenv("TRAILING_STEP", "0.7"))  # +0.7%
+        self.max_risk_per_ticker = float(os.getenv("MAX_RISK_PER_TICKER", "4.0"))  # 4.0% на тикер
+        self.max_risk_per_sector = float(os.getenv("MAX_RISK_PER_SECTOR", "10.0"))  # 10% на сектор
+        self.stop_loss_pct = float(os.getenv("STOP_LOSS_PCT", "2.0"))  # -2.0% (твой STOP_LOSS_PCT=2)
+        self.take_profit_pct = float(os.getenv("TAKE_PROFIT_PCT", "5.0"))  # +5.0% (твой TAKE_PROFIT_PCT=5)
+        self.trailing_start = float(os.getenv("TAKE_PROFIT_PCT", "5.0")) * 0.4  # 40% от тейк-профита
+        self.trailing_step = float(os.getenv("STOP_LOSS_PCT", "2.0")) * 0.5  # 50% от стоп-лосса
+        
+        # Базовый размер позиции (если нужен)
+        self.base_position_size = float(os.getenv("BASE_POSITION_SIZE", "5.0"))
         
         self.initial_capital = initial_capital
         self.current_capital = initial_capital
