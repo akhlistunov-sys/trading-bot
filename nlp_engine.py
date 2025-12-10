@@ -422,8 +422,9 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
         logger.debug("ℹ️ Все ИИ-провайдеры недоступны или не нашли тикеров")
         return None
     
+    # nlp_engine.py - ДОБАВЛЕНЫ ЛОГИ ДЛЯ ОШИБОК (только изменения)
     def _parse_ai_response(self, response: str, news_item: Dict, provider: str) -> Optional[Dict]:
-        """Парсинг ответа ИИ - СОХРАНЯЕМ ОРИГИНАЛЬНУЮ ЛОГИКУ"""
+        """Парсинг ответа ИИ - С ДЕТАЛЬНЫМИ ЛОГАМИ ОШИБОК"""
         try:
             response = response.strip()
             
@@ -467,12 +468,19 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
             
             if not json_str:
                 self.stats['parsing_errors'] += 1
-                logger.debug(f"❌ {provider}: Не найден JSON в ответе")
+                logger.error(f"❌ {provider}: Не найден JSON в ответе")
+                logger.error(f"   Ответ: {response[:200]}...")
                 return None
             
             logger.debug(f"✅ {provider} JSON найден: {json_str[:150]}...")
             
-            data = json.loads(json_str)
+            try:
+                data = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                self.stats['parsing_errors'] += 1
+                logger.error(f"❌ {provider}: Ошибка парсинга JSON: {str(e)}")
+                logger.error(f"   JSON строка: {json_str[:200]}...")
+                return None
             
             tickers = data.get('tickers', [])
             if not isinstance(tickers, list):
@@ -542,13 +550,10 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
             logger.debug(f"📊 {provider}: {len(valid_tickers)} тикеров, {event_type}, {sentiment}, impact:{impact_score}")
             return result
             
-        except json.JSONDecodeError as e:
-            self.stats['parsing_errors'] += 1
-            logger.debug(f"❌ {provider}: Ошибка парсинга JSON: {str(e)[:50]}")
-            return None
         except Exception as e:
             self.stats['parsing_errors'] += 1
-            logger.debug(f"❌ {provider}: Ошибка парсинга: {str(e)[:50]}")
+            logger.error(f"❌ {provider}: Критическая ошибка парсинга: {str(e)}")
+            logger.error(f"   Traceback: {e.__class__.__name__}")
             return None
     
     def _create_cache_key(self, news_item: Dict) -> str:
