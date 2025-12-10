@@ -1,4 +1,4 @@
-# app.py - ПОЛНАЯ РАБОЧАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ
+а# app.py - ПОЛНАЯ РАБОЧАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ
 from flask import Flask, jsonify, render_template_string
 import datetime
 import time
@@ -989,7 +989,7 @@ def status():
         "providers_configured": {
             "gigachat": nlp_engine.providers['gigachat']['enabled'],
             "openrouter": nlp_engine.providers['openrouter']['enabled'],
-            "finam": bool(finam_verifier.api_token),
+            "finam": bool(finam_verifier.api_token),  # ← Здесь
             "enhanced_analyzer": True
         }
     })
