@@ -447,7 +447,7 @@ Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
             
             # Проверяем reason на "no financial content"
             reason = data.get('reason', '').lower()
-            if not tickers or 'no financial' in reason or 'not financial' in reason:
+            if not tickers:
                 self.stats['no_financial_content'] += 1
                 logger.debug(f"   ⚠️ {provider}: Нет финансового содержания: {reason}")
                 return None
