@@ -1,4 +1,4 @@
-# nlp_engine.py - ИСПРАВЛЕННЫЙ С СЕМАФОРОМ ДЛЯ GIGACHAT
+# nlp_engine.py - ПОЛНЫЙ КОД С УЛУЧШЕННЫМИ ПРОМПТАМИ
 import logging
 import json
 import os
@@ -12,6 +12,7 @@ import certifi
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,17 @@ class GigaChatAuth:
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         rquid = str(uuid.uuid4())
         
+        # Убираем кавычки если есть
+        client_secret_clean = self.client_secret
+        if client_secret_clean.startswith('"') and client_secret_clean.endswith('"'):
+            client_secret_clean = client_secret_clean[1:-1]
+            logger.warning("⚠️ Убрал кавычки из client_secret")
+        
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
             'RqUID': rquid,
-            'Authorization': f'Basic {self.client_secret}'  # УЖЕ base64!
+            'Authorization': f'Basic {client_secret_clean}'  # УЖЕ base64!
         }
         
         data = {'scope': self.scope}
@@ -64,7 +71,7 @@ class GigaChatAuth:
 
 # ==================== ОСНОВНОЙ NLP КЛАСС ====================
 class NlpEngine:
-    """Гибридный ИИ-движок с последовательной обработкой GigaChat"""
+    """Гибридный ИИ-движок с улучшенными промптами"""
     
     def __init__(self):
         logger.info("🔧 Инициализация гибридного NLP-движка...")
@@ -91,12 +98,11 @@ class NlpEngine:
         # СЕМАФОР для ограничения 1 одновременного запроса к GigaChat
         self.gigachat_semaphore = asyncio.Semaphore(1)
         
-        # Ротация моделей OpenRouter (бесплатные)
+        # Ротация моделей OpenRouter (рабочие бесплатные)
         self.openrouter_models = [
             'google/gemini-2.0-flash:free',
             'mistralai/mistral-7b-instruct:free',
-            'meta-llama/llama-3.2-3b-instruct:free',
-            'huggingfaceh4/zephyr-7b-beta:free'
+            'meta-llama/llama-3.2-3b-instruct:free'
         ]
         
         self.providers = {
@@ -128,7 +134,9 @@ class NlpEngine:
             'by_provider': {p: {'requests': 0, 'success': 0} for p in self.provider_priority},
             'cache_hits': 0,
             'cache_misses': 0,
-            'gigachat_queue_waits': 0
+            'gigachat_queue_waits': 0,
+            'parsing_errors': 0,
+            'no_financial_content': 0
         }
         
         logger.info(f"🤖 Гибридный NLP-движок инициализирован")
@@ -153,20 +161,26 @@ class NlpEngine:
             logger.warning(f"⚠️ Ошибка настройки SSL для Render: {e}")
     
     def _create_prompt_for_provider(self, news_item: Dict, provider: str, model: str = None) -> Dict:
-        """Создание промпта для финансового анализа"""
+        """Создание промпта для финансового анализа - УЛУЧШЕННЫЙ"""
         
         title = news_item.get('title', '')[:200]
         description = news_item.get('description', '')
         content = news_item.get('content', '') or description[:300]
         
+        # Определяем язык новости
+        has_russian = any(char in title.lower() for char in 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя')
+        has_english = any(char in title.lower() for char in 'abcdefghijklmnopqrstuvwxyz')
+        
         if provider == 'gigachat':
-            prompt_text = f"""Анализируй финансовую новость для трейдинга на российском рынке.
+            if has_russian or (not has_english and not has_russian):
+                # Русские или смешанные новости
+                prompt_text = f"""Анализируй финансовую новость для трейдинга на российском рынке.
 
 Новость: {title}
 
 Задача:
-1. Найди упоминания российских компаний и их биржевые тикеры MOEX (пример: Сбербанк -> SBER, Газпром -> GAZP).
-2. Определи тип события: dividend (дивиденды), earnings_report (отчетность), merger (слияние), regulatory (регуляторные новости), market_update (общие новости).
+1. Найди упоминания российских компаний и их биржевые тикеры MOEX (пример: Сбербанк -> SBER, Газпром -> GAZP, Лукойл -> LKOH, Норникель -> GMKN).
+2. Определи тип события: dividend (дивиденды), earnings_report (отчетность), merger_acquisition (слияние/поглощение), regulatory (регуляторные новости), market_update (общие новости).
 3. Оцени тональность: positive, negative, neutral.
 4. Оцени силу влияния на цену (1-10): 1=слабое, 10=сильное.
 5. Краткое обоснование (1 предложение).
@@ -182,6 +196,30 @@ class NlpEngine:
 
 Если тикеров нет или новость не финансовая: {{"tickers": [], "reason": "No financial content"}}
 Только JSON, никакого текста!"""
+            else:
+                # Английские новости
+                prompt_text = f"""Analyze financial news for trading on Russian stock market.
+
+News: {title}
+
+Task:
+1. Find Russian companies mentioned and their MOEX tickers (example: Sberbank -> SBER, Gazprom -> GAZP, Lukoil -> LKOH, Norilsk Nickel -> GMKN, Yandex -> YNDX, Ozon -> OZON).
+2. Determine event type: dividend, earnings_report, merger_acquisition, regulatory, market_update.
+3. Assess sentiment: positive, negative, neutral.
+4. Rate impact on stock price (1-10): 1=weak, 10=strong.
+5. Brief reason (one sentence).
+
+Return ONLY JSON format:
+{{
+    "tickers": ["SBER"],
+    "event_type": "dividend",
+    "sentiment": "positive",
+    "impact_score": 7,
+    "reason": "Board recommended dividend increase"
+}}
+
+If no tickers or not financial news: {{"tickers": [], "reason": "No financial content"}}
+ONLY JSON, no other text!"""
             
             return {
                 "model": "GigaChat-2",
@@ -191,20 +229,39 @@ class NlpEngine:
                 "stream": False
             }
         else:
-            system_prompt = """Ты финансовый аналитик. Анализируй новости российского рынка.
-Верни ТОЛЬКО JSON в формате: 
-{{"tickers": ["SBER"], "event_type": "dividend", "sentiment": "positive", "impact_score": 7, "reason": "..."}}
-Если нет финансового содержания: {{"tickers": [], "reason": "No financial content"}}"""
+            # OpenRouter промпт
+            system_prompt = """You are a financial analyst specializing in Russian stock market.
+Analyze news and return ONLY JSON in format: 
+{"tickers": ["SBER"], "event_type": "dividend", "sentiment": "positive", "impact_score": 7, "reason": "..."}
+If no financial content: {"tickers": [], "reason": "No financial content"}
+Important: Use MOEX ticker symbols (SBER, GAZP, LKOH, GMKN, YNDX, OZON, etc.)"""
             
-            return {
-                "model": model or 'google/gemini-2.0-flash:free',
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Новость: {title}\n\n{content[:200]}"}
-                ],
-                "temperature": 0.1,
-                "max_tokens": 400
-            }
+            user_content = f"News: {title}\n\n{content[:200]}"
+            
+            # Определяем модель
+            if model and 'gemini' in model:
+                # Gemini-specific format
+                return {
+                    "model": model,
+                    "messages": [
+                        {"role": "user", "parts": [{"text": system_prompt}]},
+                        {"role": "model", "parts": [{"text": "I understand. I will analyze financial news and return only JSON."}]},
+                        {"role": "user", "parts": [{"text": user_content}]}
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 400
+                }
+            else:
+                # Standard format
+                return {
+                    "model": model or 'google/gemini-2.0-flash:free',
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 400
+                }
     
     async def _make_gigachat_request(self, prompt_data: Dict) -> Optional[Dict]:
         """Запрос к GigaChat API с ограничением 1 запрос"""
@@ -256,13 +313,12 @@ class NlpEngine:
         
         # 1. Пробуем GigaChat с ОГРАНИЧЕНИЕМ 1 запрос
         if 'gigachat' in self.provider_priority and self.providers['gigachat']['enabled']:
-            logger.info("📡 Пробую провайдер: GIGACHAT (с очередью)")
+            logger.debug("📡 Пробую провайдер: GIGACHAT (с очередью)")
             self.stats['by_provider']['gigachat']['requests'] += 1
             
             # ОЖИДАЕМ СЕМАФОР для ограничения 1 запроса
             async with self.gigachat_semaphore:
                 self.stats['gigachat_queue_waits'] += 1
-                logger.debug(f"   🔒 Получил доступ к GigaChat (очередь)")
                 
                 try:
                     prompt_data = self._create_prompt_for_provider(news_item, 'gigachat')
@@ -278,21 +334,22 @@ class NlpEngine:
                                 self.stats['successful_requests'] += 1
                                 self.stats['by_provider']['gigachat']['success'] += 1
                                 self.analysis_cache[cache_key] = analysis_result
-                                logger.info("   ✅ GigaChat: успешный анализ")
+                                logger.debug(f"   ✅ GigaChat: успешный анализ")
                                 return analysis_result
+                            else:
+                                logger.debug(f"   ⚠️ GigaChat: анализ не получен (парсинг или no financial)")
                 except Exception as e:
                     logger.debug(f"   ⚠️ GigaChat ошибка: {str(e)[:50]}")
                 
                 # Пауза между запросами GigaChat
                 await asyncio.sleep(1)
         
-        # 2. Пробуем OpenRouter (можно параллельно, но ограничим для стабильности)
+        # 2. Пробуем OpenRouter (последовательно)
         if 'openrouter' in self.provider_priority and self.providers['openrouter']['enabled']:
-            logger.info("📡 Пробую провайдер: OPENROUTER")
+            logger.debug("📡 Пробую провайдер: OPENROUTER")
             
             for model in self.openrouter_models:
                 self.stats['by_provider']['openrouter']['requests'] += 1
-                logger.debug(f"   Модель: {model}")
                 
                 try:
                     prompt_data = self._create_prompt_for_provider(news_item, 'openrouter', model)
@@ -321,7 +378,7 @@ class NlpEngine:
                                     self.stats['successful_requests'] += 1
                                     self.stats['by_provider']['openrouter']['success'] += 1
                                     self.analysis_cache[cache_key] = analysis_result
-                                    logger.info(f"   ✅ OpenRouter ({model}): успешный анализ")
+                                    logger.debug(f"   ✅ OpenRouter ({model}): успешный анализ")
                                     return analysis_result
                         
                 except Exception as e:
@@ -329,40 +386,100 @@ class NlpEngine:
                 
                 await asyncio.sleep(0.5)
         
-        logger.info("ℹ️ Все ИИ-провайдеры недоступны или не нашли финансового содержания")
+        logger.debug("ℹ️ Все ИИ-провайдеры недоступны или не нашли финансового содержания")
         return None
     
     def _parse_ai_response(self, response: str, news_item: Dict, provider: str) -> Optional[Dict]:
-        """Парсинг ответа ИИ (оставляем как было)"""
+        """Парсинг ответа ИИ - УЛУЧШЕННЫЙ"""
         try:
             response = response.strip()
             
+            # Логируем ответ для отладки
+            logger.debug(f"   📥 {provider} raw response: {response[:200]}...")
+            
+            # Пытаемся найти JSON разными способами
+            json_str = None
+            
+            # Способ 1: Ищем между { и }
             start = response.find('{')
             end = response.rfind('}') + 1
             
-            if start == -1 or end == 0:
+            if start != -1 and end != 0 and end > start:
+                json_str = response[start:end]
+            
+            # Способ 2: Регулярное выражение (если первый способ не сработал)
+            if not json_str:
+                json_pattern = r'\{[^{}]*\}'
+                matches = re.findall(json_pattern, response, re.DOTALL)
+                if matches:
+                    # Берем самый длинный JSON
+                    json_str = max(matches, key=len)
+            
+            # Способ 3: Ищем JSON с любыми пробелами
+            if not json_str:
+                # Пробуем найти начало и конец JSON
+                for start_idx in range(len(response)):
+                    if response[start_idx] == '{':
+                        brace_count = 0
+                        for end_idx in range(start_idx, len(response)):
+                            if response[end_idx] == '{':
+                                brace_count += 1
+                            elif response[end_idx] == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    json_str = response[start_idx:end_idx+1]
+                                    break
+                        if json_str:
+                            break
+            
+            if not json_str:
+                self.stats['parsing_errors'] += 1
+                logger.debug(f"   ❌ {provider}: Не найден JSON в ответе")
                 return None
             
-            json_str = response[start:end]
+            logger.debug(f"   🔍 {provider} JSON found: {json_str[:150]}...")
+            
             data = json.loads(json_str)
             
             tickers = data.get('tickers', [])
             if not isinstance(tickers, list):
                 tickers = []
             
+            # Проверяем reason на "no financial content"
+            reason = data.get('reason', '').lower()
+            if not tickers or 'no financial' in reason or 'not financial' in reason:
+                self.stats['no_financial_content'] += 1
+                logger.debug(f"   ⚠️ {provider}: Нет финансового содержания: {reason}")
+                return None
+            
             valid_tickers = []
             for ticker in tickers:
-                if isinstance(ticker, str) and 2 <= len(ticker) <= 5 and ticker.isalpha():
-                    valid_tickers.append(ticker.upper())
+                if isinstance(ticker, str) and 2 <= len(ticker) <= 5:
+                    # Приводим к верхнему регистру и проверяем на буквы/цифры
+                    ticker_upper = ticker.upper()
+                    if any(c.isalpha() for c in ticker_upper):
+                        valid_tickers.append(ticker_upper)
             
-            reason = data.get('reason', '').lower()
-            if not valid_tickers or 'no financial' in reason:
+            if not valid_tickers:
+                self.stats['no_financial_content'] += 1
+                logger.debug(f"   ⚠️ {provider}: Нет валидных тикеров")
                 return None
             
             event_type = data.get('event_type', 'market_update')
             sentiment = data.get('sentiment', 'neutral')
-            impact_score = min(10, max(1, int(data.get('impact_score', 5))))
             
+            # Парсим impact_score
+            impact_score = 5  # default
+            try:
+                raw_impact = data.get('impact_score')
+                if raw_impact is not None:
+                    impact_score = int(raw_impact)
+            except:
+                pass
+            
+            impact_score = min(10, max(1, impact_score))
+            
+            # Расчет confidence
             confidence = 0.7
             if event_type != 'market_update':
                 confidence += 0.1
@@ -382,21 +499,27 @@ class NlpEngine:
                 'relevance_score': 70 if valid_tickers else 30,
                 'sentiment': sentiment,
                 'horizon': 'short_term',
-                'summary': data.get('reason', f"Найдено {len(valid_tickers)} тикеров"),
+                'summary': data.get('reason', f"Found {len(valid_tickers)} tickers"),
                 'confidence': confidence,
                 'ai_provider': provider,
                 'analysis_timestamp': datetime.now().isoformat(),
                 'simple_analysis': False
             }
             
-            logger.info(f"   📊 {provider}: {len(valid_tickers)} тикеров, {event_type}, {sentiment}")
+            logger.debug(f"   📊 {provider}: {len(valid_tickers)} тикеров, {event_type}, {sentiment}, impact:{impact_score}")
             return result
             
+        except json.JSONDecodeError as e:
+            self.stats['parsing_errors'] += 1
+            logger.debug(f"   ❌ {provider}: Ошибка парсинга JSON: {str(e)[:50]}")
+            return None
         except Exception as e:
-            logger.debug(f"   ⚠️ Ошибка парсинга ответа {provider}: {str(e)[:50]}")
+            self.stats['parsing_errors'] += 1
+            logger.debug(f"   ❌ {provider}: Ошибка парсинга: {str(e)[:50]}")
             return None
     
     def _create_cache_key(self, news_item: Dict) -> str:
+        """Создание ключа кэша"""
         title = news_item.get('title', '')[:50].replace(' ', '_').lower()
         source = news_item.get('source', '')[:20].replace(' ', '_').lower()
         return f"{source}_{title}"
@@ -426,6 +549,8 @@ class NlpEngine:
             'cache_hits': self.stats['cache_hits'],
             'cache_misses': self.stats['cache_misses'],
             'gigachat_queue_waits': self.stats['gigachat_queue_waits'],
+            'parsing_errors': self.stats['parsing_errors'],
+            'no_financial_content': self.stats['no_financial_content'],
             'current_provider': self.get_current_provider(),
             'openrouter_models': len(self.openrouter_models),
             'providers': provider_stats
