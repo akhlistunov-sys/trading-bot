@@ -1,4 +1,4 @@
-# news_prefilter.py - УЖЕСТОЧЕННЫЙ ПРЕФИЛЬТР
+# news_prefilter.py - ПОЛНЫЙ С ДОБАВЛЕННЫМ МЕТОДОМ
 import logging
 import re
 from typing import Dict, List
@@ -48,7 +48,7 @@ class NewsPreFilter:
             'регулятор', 'надзор', 'штраф',
             
             # Товары
-            'нефт', 'газ', 'золот', 'рубл', 'доллар', 'евро',
+            'нефт', 'газ', 'золот', 'рубл', 'доллар', 'евro',
         ]
         
         # АБСОЛЮТНЫЙ отсев
@@ -61,12 +61,22 @@ class NewsPreFilter:
             r'расписание торгов'
         ]
         
+        # Статистика
+        self.stats = {
+            'total_checked': 0,
+            'accepted': 0,
+            'rejected': 0,
+            'hard_rejected': 0
+        }
+        
         logger.info(f"🔧 NewsPreFilter инициализирован (УЖЕСТОЧЕННЫЙ)")
         logger.info(f"   Отсев: {len(self.reject_keywords)} ключевых слов")
         logger.info(f"   Принятие: {len(self.accept_keywords)} ключевых слов")
     
     def is_tradable(self, news_item: Dict) -> bool:
         """Определяет, является ли новость торговым сигналом"""
+        self.stats['total_checked'] += 1
+        
         title = news_item.get('title', '').lower()
         content = news_item.get('content', '').lower() or news_item.get('description', '').lower()
         full_text = f"{title} {content[:500]}"
@@ -74,6 +84,7 @@ class NewsPreFilter:
         # 1. АБСОЛЮТНЫЙ отсев
         for pattern in self.hard_reject_patterns:
             if re.search(pattern, full_text, re.IGNORECASE):
+                self.stats['hard_rejected'] += 1
                 logger.debug(f"❌ Hard reject: {pattern[:40]}")
                 return False
         
@@ -83,19 +94,74 @@ class NewsPreFilter:
         
         # 3. Решение
         if reject_count >= 3 and accept_count <= 1:
+            self.stats['rejected'] += 1
             logger.debug(f"❌ Reject: reject={reject_count}, accept={accept_count}")
             return False
         
         if accept_count >= 1:
+            self.stats['accepted'] += 1
             logger.debug(f"✅ Accept: accept={accept_count}")
             return True
         
         # MOEX источники - более строго
         if 'moex' in news_item.get('source', '').lower():
             if any(word in title for word in ['облигациями', 'структурные', 'итоги']):
+                self.stats['rejected'] += 1
                 return False
             if accept_count >= 3:
+                self.stats['accepted'] += 1
                 return True
         
+        self.stats['rejected'] += 1
         logger.debug(f"❌ Default reject: accept={accept_count}")
         return False
+    
+    def get_filter_stats(self, sample_news: List[Dict] = None) -> Dict:
+        """Получение статистики фильтрации - НОВЫЙ МЕТОД"""
+        if sample_news:
+            # Анализ сэмпла
+            sample_stats = {
+                'total': len(sample_news),
+                'accepted': 0,
+                'rejected': 0,
+                'accept_rate': 0
+            }
+            
+            for news in sample_news:
+                if self.is_tradable(news):
+                    sample_stats['accepted'] += 1
+                else:
+                    sample_stats['rejected'] += 1
+            
+            if sample_stats['total'] > 0:
+                sample_stats['accept_rate'] = round((sample_stats['accepted'] / sample_stats['total']) * 100, 1)
+            
+            return {
+                'overall_stats': self.stats,
+                'sample_analysis': sample_stats,
+                'accept_keywords_count': len(self.accept_keywords),
+                'reject_keywords_count': len(self.reject_keywords),
+                'hard_patterns_count': len(self.hard_reject_patterns)
+            }
+        
+        # Простая статистика
+        total = self.stats['total_checked']
+        if total > 0:
+            accept_rate = round((self.stats['accepted'] / total) * 100, 1)
+            reject_rate = round((self.stats['rejected'] / total) * 100, 1)
+        else:
+            accept_rate = reject_rate = 0
+        
+        return {
+            'total_checked': total,
+            'accepted': self.stats['accepted'],
+            'rejected': self.stats['rejected'],
+            'hard_rejected': self.stats['hard_rejected'],
+            'accept_rate_percent': accept_rate,
+            'reject_rate_percent': reject_rate,
+            'keywords': {
+                'accept_count': len(self.accept_keywords),
+                'reject_count': len(self.reject_keywords),
+                'hard_patterns': len(self.hard_reject_patterns)
+            }
+        }
