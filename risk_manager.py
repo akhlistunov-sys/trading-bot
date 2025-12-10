@@ -1,4 +1,4 @@
-# risk_manager.py - ПОЛНЫЙ ИСПРАВЛЕННЫЙ КОД
+# risk_manager.py - ИСПРАВЛЕННЫЙ ДЛЯ AGGRESSIVE_TEST
 import logging
 import os
 from datetime import datetime
@@ -8,20 +8,21 @@ import math
 logger = logging.getLogger(__name__)
 
 class RiskManager:
-    """Управление рисками и расчёт параметров сделок"""
+    """Управление рисками и расчёт параметров сделок - АГРЕССИВНЫЙ РЕЖИМ"""
     
     def __init__(self, initial_capital: float = 100000):
-        # Используем ТВОИ параметры из Environment Variables:
-        self.risk_per_trade = float(os.getenv("RISK_PER_TRADE", "1.5"))  # 1.5% на сделку
-        self.max_risk_per_ticker = float(os.getenv("MAX_RISK_PER_TICKER", "4.0"))  # 4.0% на тикер
-        self.max_risk_per_sector = float(os.getenv("MAX_RISK_PER_SECTOR", "10.0"))  # 10% на сектор
-        self.stop_loss_pct = float(os.getenv("STOP_LOSS_PCT", "2.0"))  # -2.0% (твой STOP_LOSS_PCT=2)
-        self.take_profit_pct = float(os.getenv("TAKE_PROFIT_PCT", "5.0"))  # +5.0% (твой TAKE_PROFIT_PCT=5)
-        self.trailing_start = float(os.getenv("TAKE_PROFIT_PCT", "5.0")) * 0.4  # 40% от тейк-профита
-        self.trailing_step = float(os.getenv("STOP_LOSS_PCT", "2.0")) * 0.5  # 50% от стоп-лосса
+        # Параметры риска ИЗ ТВОИХ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ
+        self.risk_per_trade = float(os.getenv("RISK_PER_TRADE", "1.5"))
+        self.max_risk_per_ticker = float(os.getenv("MAX_RISK_PER_TICKER", "4.0"))
+        self.max_risk_per_sector = float(os.getenv("MAX_RISK_PER_SECTOR", "10.0"))
+        self.stop_loss_pct = float(os.getenv("STOP_LOSS_PCT", "2.0"))
+        self.take_profit_pct = float(os.getenv("TAKE_PROFIT_PCT", "5.0"))
+        self.trailing_start = self.take_profit_pct * 0.4  # 40% от тейк-профита
+        self.trailing_step = self.stop_loss_pct * 0.5     # 50% от стоп-лосса
         
-        # Базовый размер позиции (если нужен)
-        self.base_position_size = float(os.getenv("BASE_POSITION_SIZE", "5.0"))
+        # Для AGGRESSIVE_TEST
+        self.min_confidence = float(os.getenv("MIN_CONFIDENCE", "0.45"))
+        self.min_impact_score = int(os.getenv("MIN_IMPACT_SCORE", "2"))
         
         self.initial_capital = initial_capital
         self.current_capital = initial_capital
@@ -50,15 +51,15 @@ class RiskManager:
         # Открытые позиции (для расчёта рисков)
         self.open_positions = {}  # ticker -> {size, avg_price, sector}
         
-        logger.info("🎯 RiskManager инициализирован (АГРЕССИВНЫЙ профиль)")
+        logger.info("🎯 RiskManager инициализирован (АГРЕССИВНЫЙ ТЕСТ)")
         logger.info(f"   • Риск на сделку: {self.risk_per_trade}%")
         logger.info(f"   • Стоп-лосс: {self.stop_loss_pct}%")
         logger.info(f"   • Тейк-профит: {self.take_profit_pct}%")
-        logger.info(f"   • Макс. на тикер: {self.max_risk_per_ticker}%")
-        logger.info(f"   • Макс. на сектор: {self.max_risk_per_sector}%")
+        logger.info(f"   • MIN_CONFIDENCE: {self.min_confidence}")
+        logger.info(f"   • MIN_IMPACT_SCORE: {self.min_impact_score}")
     
     def prepare_signal(self, analysis: Dict, verification: Dict, current_prices: Dict) -> Optional[Dict]:
-        """Подготовка торгового сигнала с учётом рисков"""
+        """Подготовка торгового сигнала с учётом рисков - АГРЕССИВНЫЙ РЕЖИМ"""
         
         if not verification.get('valid'):
             logger.debug("❌ Сигнал не верифицирован")
@@ -110,8 +111,12 @@ class RiskManager:
             logger.debug(f"❌ Нулевой размер позиции для {primary_ticker}")
             return None
         
-        # 5. Определение действия
-        action = self._determine_action(analysis)
+        # 5. Определение действия - АГРЕССИВНЫЙ РЕЖИМ!
+        action = self._determine_action_aggressive(analysis)
+        
+        if action == 'HOLD':
+            logger.debug(f"⚠️ Сигнал {primary_ticker}: HOLD (не торгуем)")
+            return None
         
         # 6. Расчёт стоп-лосса и тейк-профита
         stop_loss = current_price * (1 - self.stop_loss_pct / 100)
@@ -211,27 +216,37 @@ class RiskManager:
         
         return max(min_shares, shares)
     
-    def _determine_action(self, analysis: Dict) -> str:
-        """Определение действия на основе анализа"""
+    def _determine_action_aggressive(self, analysis: Dict) -> str:
+        """Определение действия - АГРЕССИВНЫЙ РЕЖИМ для тестов"""
         sentiment = analysis.get('sentiment', 'neutral')
         event_type = analysis.get('event_type', 'market_update')
+        confidence = analysis.get('confidence', 0.5)
         
-        # Дивиденды и позитивные отчёты → BUY
-        if event_type == 'dividend' and sentiment == 'positive':
+        # Для AGGRESSIVE_TEST снижаем пороги!
+        
+        # ПРАВИЛА ДЛЯ АГРЕССИВНОГО ТЕСТА:
+        # 1. Любые дивиденды или отчёты → BUY
+        if event_type == 'dividend' or event_type == 'earnings_report':
             return 'BUY'
-        elif event_type == 'earnings_report' and sentiment == 'positive':
+        
+        # 2. Позитивная тональность → BUY
+        if sentiment == 'positive':
             return 'BUY'
-        elif sentiment == 'positive':
-            return 'BUY'
-        elif sentiment == 'negative':
+        
+        # 3. Негативная тональность → SELL
+        if sentiment == 'negative':
             return 'SELL'
-        else:
-            # Neutral или mixed
-            confidence = analysis.get('confidence', 0.5)
-            if confidence > 0.7:
-                return 'BUY'  # В агрессивном режиме покупаем даже нейтральные
-            else:
-                return 'HOLD'
+        
+        # 4. Нейтральная с высокой уверенностью → BUY
+        if confidence >= self.min_confidence:  # 0.45 из твоих переменных
+            return 'BUY'
+        
+        # 5. Всё остальное → HOLD (но мы не возвращаем HOLD, фильтруем выше)
+        return 'HOLD'
+    
+    def _determine_action(self, analysis: Dict) -> str:
+        """Оригинальный метод для совместимости"""
+        return self._determine_action_aggressive(analysis)
     
     def _has_position(self, ticker: str) -> bool:
         """Проверка наличия позиции"""
@@ -258,18 +273,17 @@ class RiskManager:
         return False
     
     def _get_sector_risk(self, sector: str, new_position_value: float = 0) -> float:
-        """Расчёт текущего риска сектора в % от капитала - ИСПРАВЛЕННЫЙ"""
+        """Расчёт текущего риска сектора в % от капитала"""
         sector_value = 0
         
         for ticker, pos in self.open_positions.items():
             if self._get_ticker_sector(ticker) == sector:
-                # Используем текущую стоимость или entry стоимость
                 sector_value += pos.get('current_value', pos['size'] * pos['avg_price'])
         
         # Добавляем новую позицию
         sector_value += new_position_value
         
-        # ФИКС: Проверяем что capital не ноль и используем initial_capital как базу
+        # ФИКС: Используем initial_capital как базу если current_capital невалиден
         capital_base = self.current_capital if self.current_capital > 0 else self.initial_capital
         
         if capital_base <= 0:
@@ -288,7 +302,7 @@ class RiskManager:
         # Добавляем новую позицию
         ticker_value += new_position_value
         
-        # ФИКС: Проверяем что capital не ноль и используем initial_capital как базу
+        # ФИКС: Используем initial_capital как базу если current_capital невалиден
         capital_base = self.current_capital if self.current_capital > 0 else self.initial_capital
         
         if capital_base <= 0:
@@ -316,7 +330,7 @@ class RiskManager:
             logger.info(f"💰 RiskManager: восстановлен капитал {self.current_capital:.0f} руб.")
     
     def get_risk_stats(self) -> Dict:
-        """Получение статистики рисков - ИСПРАВЛЕННЫЙ"""
+        """Получение статистики рисков"""
         sector_risks = {}
         
         for sector in self.sectors.keys():
@@ -335,5 +349,9 @@ class RiskManager:
                 'take_profit_pct': self.take_profit_pct,
                 'trailing_start': self.trailing_start,
                 'trailing_step': self.trailing_step
+            },
+            'aggressive_mode': {
+                'min_confidence': self.min_confidence,
+                'min_impact_score': self.min_impact_score
             }
         }
