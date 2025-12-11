@@ -1,5 +1,5 @@
-# app.py - ПОЛНАЯ РАБОЧАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ
-from flask import Flask, jsonify, render_template_string
+# app.py - ПОЛНАЯ РАБОЧАЯ ВЕРСИЯ С НОВЫМ ИНТЕРФЕЙСОМ
+from flask import Flask, jsonify, render_template_string, request
 import datetime
 import time
 import threading
@@ -9,9 +9,6 @@ import os
 import asyncio
 import json
 from typing import Dict, List
-from nlp_engine import NlpEngine  # <-- Используется новый класс
-from risk_manager import RiskManager  # <-- Используется новый класс
-from signal_pipeline import SignalPipeline  # <-- Используется новый класс
 
 # ===== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: принудительная загрузка переменных окружения =====
 from dotenv import load_dotenv
@@ -62,7 +59,7 @@ app = Flask(__name__)
 # Глобальные переменные состояния
 request_count = 0
 last_trading_time = "Еще не запускалась"
-bot_status = "🤖 AI Новостной Трейдер - Ожидание запуска"
+bot_status = "⏸️ Ожидание"
 session_count = 0
 trade_history = []
 total_virtual_profit = 0
@@ -100,416 +97,675 @@ decision_engine = DecisionEngine(risk_manager=risk_manager)
 
 logger.info("✅ Все модули инициализированы")
 
-# HTML шаблон для светлого интерфейса (АДАПТИВНЫЙ ДЛЯ ТЕЛЕФОНА)
+# ============================================
+# НОВЫЙ HTML ШАБЛОН - КАБИНЕТ УПРАВЛЯЮЩЕГО
+# ============================================
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Трейдер v3.0</title>
-    <meta http-equiv="refresh" content="30">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>🏦 Кабинет Управляющего | AI Трейдер</title>
+    <meta http-equiv="refresh" content="45">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        * { 
-            margin: 0; 
-            padding: 0; 
-            box-sizing: border-box; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        /* ===== СБРОС И БАЗА ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
-        
+
+        :root {
+            --primary-dark: #0f172a;
+            --primary-light: #1e293b;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+            --accent-purple: #8b5cf6;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #334155;
+        }
+
         body {
-            background: #f8fafc;
-            color: #334155;
+            background: var(--primary-dark);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             line-height: 1.5;
-            padding: 10px;
-            font-size: 14px;
+            font-size: 15px;
+            padding-bottom: 80px; /* Для фиксированной панели */
+            min-height: 100vh;
         }
-        
+
         .container {
             max-width: 100%;
             margin: 0 auto;
-        }
-        
-        /* Шапка - компактная */
-        .header {
-            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-            color: white;
-            padding: 15px;
-            border-radius: 12px;
-            margin-bottom: 15px;
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
-        }
-        
-        .header h1 {
-            font-size: 1.4rem;
-            margin-bottom: 6px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .header p {
-            opacity: 0.9;
-            font-size: 0.9rem;
-            margin: 3px 0;
-        }
-        
-        /* Карточки - адаптивные */
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 15px;
-            margin-bottom: 12px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-            border: 1px solid #e2e8f0;
-        }
-        
-        .card h3 {
-            color: #1e293b;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #e2e8f0;
-            font-size: 1.1rem;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        /* Статистика в строку */
-        .stats-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        
-        .stat-item {
-            flex: 1;
-            min-width: 120px;
-            background: #f8fafc;
-            padding: 10px;
-            border-radius: 8px;
-            text-align: center;
-            border: 1px solid #e2e8f0;
-        }
-        
-        .stat-value {
-            font-size: 1.4rem;
-            font-weight: bold;
-            color: #1d4ed8;
-            margin: 5px 0;
-        }
-        
-        .stat-label {
-            font-size: 0.75rem;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-        
-        /* Цвета для прибыли/убытков */
-        .positive { color: #10b981; font-weight: bold; }
-        .negative { color: #ef4444; font-weight: bold; }
-        
-        /* Кнопки управления - адаптивные */
-        .button-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 8px;
-            margin-top: 15px;
-        }
-        
-        .btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            padding: 10px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-            border: none;
-            cursor: pointer;
-            text-align: center;
-        }
-        
-        .btn-primary { background: #3b82f6; color: white; }
-        .btn-primary:hover { background: #2563eb; }
-        
-        .btn-success { background: #10b981; color: white; }
-        .btn-success:hover { background: #0da271; }
-        
-        .btn-warning { background: #f59e0b; color: white; }
-        .btn-warning:hover { background: #d97706; }
-        
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; }
-        
-        /* Сигналы */
-        .signal-item {
-            background: #f8fafc;
-            border-left: 4px solid #3b82f6;
             padding: 12px;
-            margin-bottom: 10px;
-            border-radius: 8px;
-            border: 1px solid #e2e8f0;
         }
-        
-        .signal-item.buy { border-left-color: #10b981; }
-        .signal-item.sell { border-left-color: #ef4444; }
-        
-        .signal-header {
+
+        /* ===== ШАПКА - КАПИТАЛ И СТАТУС ===== */
+        .header {
+            background: linear-gradient(135deg, var(--primary-light) 0%, #1e293b 100%);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .capital-display {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .capital-amount {
+            font-size: 2.2rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .capital-change {
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 20px;
+        }
+
+        .capital-change.positive {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .capital-change.negative {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .status-badge.active {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .status-badge.paused {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-amber);
+        }
+
+        /* ===== БЫСТРЫЕ ДЕЙСТВИЯ ===== */
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .action-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 14px 8px;
+            background: var(--primary-light);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            color: var(--text-primary);
+            text-decoration: none;
+            transition: all 0.2s;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-blue);
+        }
+
+        .action-btn i {
+            font-size: 1.4rem;
             margin-bottom: 6px;
         }
-        
-        .signal-ticker {
-            font-weight: bold;
-            font-size: 1.05rem;
+
+        .action-btn.primary {
+            background: linear-gradient(135deg, var(--accent-blue) 0%, #2563eb 100%);
+            color: white;
+            border: none;
         }
-        
+
+        .action-btn.danger {
+            background: linear-gradient(135deg, var(--accent-red) 0%, #dc2626 100%);
+            color: white;
+            border: none;
+        }
+
+        .action-btn.success {
+            background: linear-gradient(135deg, var(--accent-green) 0%, #0da271 100%);
+            color: white;
+            border: none;
+        }
+
+        /* ===== КЛЮЧЕВЫЕ МЕТРИКИ ===== */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card {
+            background: var(--primary-light);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent-blue);
+        }
+
+        .metric-card.success::before {
+            background: var(--accent-green);
+        }
+
+        .metric-card.warning::before {
+            background: var(--accent-amber);
+        }
+
+        .metric-card.danger::before {
+            background: var(--accent-red);
+        }
+
+        .metric-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .metric-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .metric-subtext {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* ===== ЛЕНТА СИГНАЛОВ GIGACHAT ===== */
+        .signals-section {
+            margin-bottom: 20px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .signal-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .signal-card {
+            background: var(--primary-light);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.2s;
+        }
+
+        .signal-card:hover {
+            border-color: var(--accent-blue);
+            transform: translateX(2px);
+        }
+
+        .signal-card.buy {
+            border-left: 4px solid var(--accent-green);
+        }
+
+        .signal-card.sell {
+            border-left: 4px solid var(--accent-red);
+        }
+
+        .signal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .signal-ticker {
+            font-size: 1.2rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         .signal-confidence {
-            background: #e0e7ff;
-            color: #1d4ed8;
-            padding: 3px 8px;
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent-blue);
+            padding: 4px 10px;
             border-radius: 12px;
             font-size: 0.8rem;
+            font-weight: 600;
         }
-        
-        /* Pipeline статистика */
-        .pipeline-row {
+
+        .signal-meta {
             display: flex;
-            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .signal-reason {
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            line-height: 1.4;
+        }
+
+        .impact-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        .impact-high {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .impact-medium {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-amber);
+        }
+
+        .impact-low {
+            background: rgba(148, 163, 184, 0.15);
+            color: var(--text-secondary);
+        }
+
+        /* ===== ФИКСИРОВАННАЯ ПАНЕЛЬ УПРАВЛЕНИЯ (ДЛЯ ТЕЛЕФОНА) ===== */
+        .control-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid var(--border-color);
+            padding: 12px;
+            z-index: 1000;
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
             gap: 8px;
-            margin-top: 10px;
         }
-        
-        .pipeline-stat {
-            flex: 1;
-            min-width: 70px;
-            background: #e0e7ff;
-            padding: 8px;
-            border-radius: 6px;
-            text-align: center;
-            font-size: 0.8rem;
+
+        .control-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 6px;
+            background: var(--primary-light);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.75rem;
+            transition: all 0.2s;
         }
-        
-        .pipeline-label {
-            font-size: 0.7rem;
-            color: #4f46e5;
+
+        .control-btn i {
+            font-size: 1.2rem;
+            margin-bottom: 4px;
         }
-        
-        .pipeline-value {
-            font-weight: bold;
-            font-size: 0.95rem;
-            color: #1e40af;
+
+        .control-btn.active {
+            background: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-blue);
         }
-        
-        /* Футер */
-        .footer {
-            text-align: center;
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 1px solid #e2e8f0;
-            color: #64748b;
-            font-size: 0.8rem;
-        }
-        
-        /* Улучшения для мобильных */
+
+        /* ===== АДАПТИВНОСТЬ ===== */
         @media (max-width: 480px) {
-            body { padding: 8px; }
-            .header { padding: 12px; }
-            .header h1 { font-size: 1.2rem; }
-            .card { padding: 12px; }
-            .stat-item { min-width: 100px; }
-            .button-grid { grid-template-columns: repeat(2, 1fr); }
-            .btn { font-size: 0.8rem; padding: 8px; }
+            .capital-amount {
+                font-size: 1.8rem;
+            }
+            
+            .quick-actions {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .control-grid {
+                grid-template-columns: repeat(5, 1fr);
+            }
+            
+            .control-btn span {
+                font-size: 0.7rem;
+            }
         }
+
+        @media (min-width: 768px) {
+            .container {
+                max-width: 720px;
+                padding: 20px;
+            }
+            
+            .quick-actions {
+                grid-template-columns: repeat(8, 1fr);
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        /* ===== УТИЛИТЫ ===== */
+        .positive { color: var(--accent-green); }
+        .negative { color: var(--accent-red); }
+        .neutral { color: var(--text-secondary); }
         
-        /* Иконки */
-        .icon { font-size: 1.1em; }
+        .text-sm { font-size: 0.85rem; }
+        .text-xs { font-size: 0.75rem; }
+        
+        .mb-2 { margin-bottom: 8px; }
+        .mb-3 { margin-bottom: 12px; }
+        .mb-4 { margin-bottom: 16px; }
+        
+        .hidden { display: none; }
+        
+        .refresh-note {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            padding: 12px;
+            border-top: 1px solid var(--border-color);
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Шапка -->
+        <!-- ШАПКА - КАПИТАЛ И СТАТУС -->
         <div class="header">
-            <h1><span class="icon">🤖</span> AI Трейдер "Sentiment Hunter"</h1>
-            <p><strong>⚡ Режим:</strong> Агрессивное тестирование</p>
-            <p><strong>🏦 Архитектура:</strong> GigaChat + Risk Management</p>
-        </div>
-        
-        <!-- Состояние системы -->
-        <div class="card">
-            <h3><span class="icon">📊</span> Состояние системы</h3>
-            <div class="stats-row">
-                <div class="stat-item">
-                    <div class="stat-label">Статус</div>
-                    <div class="stat-value" style="font-size: 1rem;">{{ bot_status }}</div>
+            <div class="capital-display">
+                <div class="capital-amount">
+                    {{ "{:,.0f}".format(virtual_portfolio_value).replace(",", " ") }} ₽
                 </div>
-                <div class="stat-item">
-                    <div class="stat-label">Аптайм</div>
-                    <div class="stat-value">{{ uptime }}</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Сессии</div>
-                    <div class="stat-value">{{ session_count }}</div>
+                <div class="capital-change {% if total_virtual_return >= 0 %}positive{% else %}negative{% endif %}">
+                    {% if total_virtual_return >= 0 %}+{% endif %}{{ "%.2f"|format(total_virtual_return) }}%
                 </div>
             </div>
-            <p><strong>🕒 Последняя торговля:</strong> {{ last_trading_time }}</p>
-            <p><strong>📈 Запросов:</strong> {{ request_count }}</p>
-            <p><strong>🧠 Pipeline:</strong> {{ pipeline_efficiency }}% эффективность</p>
-        </div>
-        
-        <!-- Финансы -->
-        <div class="card">
-            <h3><span class="icon">💰</span> Финансы</h3>
-            <div class="stats-row">
-                <div class="stat-item">
-                    <div class="stat-label">Портфель</div>
-                    <div class="stat-value">{{ "%.0f"|format(virtual_portfolio_value) }}₽</div>
+            <div class="status-bar">
+                <div class="status-badge {% if bot_status.startswith('▶️') %}active{% else %}paused{% endif %}">
+                    <i class="fas fa-robot"></i>
+                    <span>{{ bot_status }}</span>
                 </div>
-                <div class="stat-item">
-                    <div class="stat-label">Доходность</div>
-                    <div class="stat-value {% if total_virtual_return >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ "%+.1f"|format(total_virtual_return) }}%
-                    </div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Прибыль</div>
-                    <div class="stat-value {% if total_virtual_profit >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ "%+.0f"|format(total_virtual_profit) }}₽
-                    </div>
-                </div>
-            </div>
-            <div class="pipeline-row">
-                <div class="pipeline-stat">
-                    <div class="pipeline-label">Риск/сделку</div>
-                    <div class="pipeline-value">{{ risk_per_trade }}%</div>
-                </div>
-                <div class="pipeline-stat">
-                    <div class="pipeline-label">Стоп-лосс</div>
-                    <div class="pipeline-value">{{ stop_loss }}%</div>
-                </div>
-                <div class="pipeline-stat">
-                    <div class="pipeline-label">Тейк-профит</div>
-                    <div class="pipeline-value">{{ take_profit }}%</div>
+                <div class="text-sm">
+                    <i class="fas fa-history"></i> Сессий: {{ session_count }}
                 </div>
             </div>
         </div>
-        
-        <!-- Анализ новостей -->
-        <div class="card">
-            <h3><span class="icon">📰</span> Анализ новостей</h3>
-            <div class="stats-row">
-                <div class="stat-item">
-                    <div class="stat-label">Новостей</div>
-                    <div class="stat-value">{{ last_news_count }}</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Сигналов</div>
-                    <div class="stat-value">{{ last_signals|length }}</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Позиций</div>
-                    <div class="stat-value">{{ virtual_positions|length }}</div>
-                </div>
-            </div>
-            <p><strong>🧠 Провайдер:</strong> {{ ai_provider|upper }}</p>
-            <p><strong>🔧 Finam:</strong> {{ finam_status }}</p>
-            <p><strong>🎯 Отфильтровано:</strong> {{ filtered_percent }}% новостей</p>
+
+        <!-- БЫСТРЫЕ ДЕЙСТВИЯ -->
+        <div class="quick-actions">
+            <a href="/force" class="action-btn primary">
+                <i class="fas fa-play"></i>
+                <span>Запуск</span>
+            </a>
+            <a href="/analyze" class="action-btn">
+                <i class="fas fa-brain"></i>
+                <span>Анализ</span>
+            </a>
+            <a href="/test_pipeline" class="action-btn">
+                <i class="fas fa-code-branch"></i>
+                <span>Тест</span>
+            </a>
+            <a href="/trades" class="action-btn success">
+                <i class="fas fa-chart-line"></i>
+                <span>Сделки</span>
+            </a>
+            <a href="/test_gigachat_fixed" class="action-btn">
+                <i class="fas fa-comment-dots"></i>
+                <span>GigaChat</span>
+            </a>
+            <a href="/test_finam" class="action-btn">
+                <i class="fas fa-ruble-sign"></i>
+                <span>Finam</span>
+            </a>
+            <a href="/stats" class="action-btn">
+                <i class="fas fa-chart-bar"></i>
+                <span>Статистика</span>
+            </a>
+            <a href="/env" class="action-btn danger">
+                <i class="fas fa-cog"></i>
+                <span>Настройки</span>
+            </a>
         </div>
-        
-        <!-- Pipeline статистика -->
-        {% if pipeline_stats %}
-        <div class="card">
-            <h3><span class="icon">⚙️</span> Pipeline</h3>
-            <div class="pipeline-row">
-                <div class="pipeline-stat">
-                    <div class="pipeline-label">Новостей</div>
-                    <div class="pipeline-value">{{ pipeline_stats.total_news }}</div>
+
+        <!-- КЛЮЧЕВЫЕ МЕТРИКИ -->
+        <div class="metrics-grid">
+            <div class="metric-card success">
+                <div class="metric-label">Прибыль</div>
+                <div class="metric-value {% if total_virtual_profit >= 0 %}positive{% else %}negative{% endif %}">
+                    {{ "%+.0f"|format(total_virtual_profit) }} ₽
                 </div>
-                <div class="pipeline-stat">
-                    <div class="pipeline-label">Отфильтровано</div>
-                    <div class="pipeline-value">{{ pipeline_stats.filtered_news }}</div>
+                <div class="metric-subtext">Всего</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">Сделок</div>
+                <div class="metric-value">{{ trade_history|length }}</div>
+                <div class="metric-subtext">Всего исполнено</div>
+            </div>
+            
+            <div class="metric-card warning">
+                <div class="metric-label">Новостей</div>
+                <div class="metric-value">{{ last_news_count }}</div>
+                <div class="metric-subtext">Последняя проверка</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">Эффективность</div>
+                <div class="metric-value">
+                    {% if pipeline_stats %}
+                        {{ "%.1f"|format(pipeline_stats.get('gigachat_success_rate', 0)) }}%
+                    {% else %}
+                        0%
+                    {% endif %}
                 </div>
-                <div class="pipeline-stat">
-                    <div class="pipeline-label">Проанализировано</div>
-                    <div class="pipeline-value">{{ pipeline_stats.analyzed_news }}</div>
-                </div>
-                <div class="pipeline-stat">
-                    <div class="pipeline-label">Сигналов</div>
-                    <div class="pipeline-value">{{ pipeline_stats.verified_signals }}</div>
-                </div>
+                <div class="metric-subtext">GigaChat</div>
             </div>
         </div>
-        {% endif %}
-        
-        <!-- Последние сигналы -->
+
+        <!-- ЛЕНТА СИГНАЛОВ GIGACHAT -->
         {% if last_signals %}
-        <div class="card">
-            <h3><span class="icon">🚨</span> Последние сигналы</h3>
-            {% for signal in last_signals[:3] %}
-            <div class="signal-item {{ signal.action|lower }}">
-                <div class="signal-header">
-                    <div class="signal-ticker">
-                        <span class="icon">
-                            {% if signal.action == 'BUY' %}🟢{% else %}🔴{% endif %}
-                        </span>
-                        {{ signal.action }} {{ signal.ticker }}
-                        <span style="font-size: 0.8rem; color: #64748b; margin-left: 8px;">
-                            x{{ signal.position_size }}
-                        </span>
+        <div class="signals-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <i class="fas fa-bolt"></i>
+                    Последние сигналы GigaChat
+                </h2>
+                <span class="text-sm">{{ last_signals|length }} всего</span>
+            </div>
+            
+            <div class="signal-list">
+                {% for signal in last_signals[:5] %}
+                <div class="signal-card {{ signal.action|lower }}">
+                    <div class="signal-header">
+                        <div class="signal-ticker">
+                            {% if signal.action == 'BUY' %}
+                                <i class="fas fa-arrow-up positive"></i>
+                            {% else %}
+                                <i class="fas fa-arrow-down negative"></i>
+                            {% endif %}
+                            {{ signal.ticker }}
+                            <span class="text-sm neutral">×{{ signal.position_size }}</span>
+                        </div>
+                        <div class="signal-confidence">
+                            {{ "%.2f"|format(signal.confidence) }}
+                        </div>
                     </div>
-                    <div class="signal-confidence">
-                        {{ "%.2f"|format(signal.confidence) }}
+                    
+                    <div class="signal-meta">
+                        <span><i class="fas fa-project-diagram"></i> {{ signal.event_type|replace('_', ' ')|title }}</span>
+                        <span><i class="fas fa-wave-square"></i> Impact: {{ signal.impact_score }}/10</span>
+                        <span><i class="fas fa-clock"></i> {{ signal.timestamp[11:19] }}</span>
+                    </div>
+                    
+                    <div class="signal-reason mb-2">
+                        {{ signal.reason[:80] }}{% if signal.reason|length > 80 %}...{% endif %}
+                    </div>
+                    
+                    <div class="impact-badge {% if signal.impact_score >= 7 %}impact-high{% elif signal.impact_score >= 4 %}impact-medium{% else %}impact-low{% endif %}">
+                        Сила сигнала: {{ signal.impact_score }}/10
                     </div>
                 </div>
-                <p><strong>Событие:</strong> {{ signal.event_type|capitalize }}</p>
-                <p><strong>Тональность:</strong> {{ signal.sentiment }} (Impact: {{ signal.impact_score }})</p>
-                <p><strong>💰 Стоимость:</strong> {{ "%.0f"|format(signal.position_value) }} руб.</p>
-                <p style="font-size: 0.8rem;"><strong>Время:</strong> {{ signal.timestamp[11:19] }}</p>
+                {% endfor %}
             </div>
-            {% endfor %}
         </div>
         {% endif %}
-        
-        <!-- Управление -->
-        <div class="card">
-            <h3><span class="icon">⚡</span> Управление</h3>
-            <div class="button-grid">
-                <a href="/force" class="btn btn-success">
-                    <span class="icon">🚀</span> Запуск
-                </a>
-                <a href="/trades" class="btn btn-warning">
-                    <span class="icon">📋</span> Сделки
-                </a>
-                <a href="/status" class="btn btn-primary">
-                    <span class="icon">📊</span> Статус
-                </a>
-                <a href="/analyze" class="btn btn-primary">
-                    <span class="icon">🧠</span> Анализ
-                </a>
-                <a href="/test_providers" class="btn btn-warning">
-                    <span class="icon">🔧</span> Тесты
-                </a>
-                <a href="/test_pipeline" class="btn btn-success">
-                    <span class="icon">⚙️</span> Pipeline
-                </a>
-                <a href="/env" class="btn btn-danger">
-                    <span class="icon">⚙️</span> Переменные
-                </a>
+
+        <!-- АКТИВНЫЕ ПОЗИЦИИ -->
+        {% if virtual_portfolio.positions %}
+        <div class="signals-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <i class="fas fa-chart-line"></i>
+                    Активные позиции
+                </h2>
+                <span class="text-sm">{{ virtual_portfolio.positions|length }} открыто</span>
+            </div>
+            
+            <div class="signal-list">
+                {% for ticker, pos in virtual_portfolio.positions.items() %}
+                <div class="signal-card">
+                    <div class="signal-header">
+                        <div class="signal-ticker">
+                            <i class="fas fa-coins positive"></i>
+                            {{ ticker }}
+                            <span class="text-sm neutral">×{{ pos.size }}</span>
+                        </div>
+                        <div class="signal-confidence">
+                            {{ "%.0f"|format(pos.avg_price) }} ₽
+                        </div>
+                    </div>
+                    
+                    <div class="signal-meta">
+                        <span><i class="fas fa-sign-in-alt"></i> Вход: {{ pos.entry_time[11:16] if pos.entry_time else 'N/A' }}</span>
+                        <span><i class="fas fa-robot"></i> {{ pos.get('ai_provider', 'unknown') }}</span>
+                    </div>
+                    
+                    <div class="signal-reason">
+                        Стоп: {{ "%.2f"|format(pos.stop_loss) }} ₽ (-{{ pos.stop_loss_percent }}%)
+                        | Тейк: {{ "%.2f"|format(pos.take_profit) }} ₽ (+{{ pos.take_profit_percent }}%)
+                    </div>
+                </div>
+                {% endfor %}
             </div>
         </div>
-        
-        <!-- Футер -->
-        <div class="footer">
-            <p><em>🤖 AI Трейдер "Sentiment Hunter" v3.0 | Signal Pipeline</em></p>
-            <p>Риск-менеджмент: {{ risk_per_trade }}% на сделку</p>
+        {% endif %}
+
+        <!-- СИСТЕМНАЯ ИНФОРМАЦИЯ -->
+        <div class="metric-card">
+            <div class="metric-label">Системная информация</div>
+            <div class="text-sm mb-2">
+                <i class="fas fa-microchip"></i> Аптайм: {{ uptime_str }}
+            </div>
+            <div class="text-sm mb-2">
+                <i class="fas fa-calendar"></i> Последняя торговля: {{ last_trading_time }}
+            </div>
+            <div class="text-sm">
+                <i class="fas fa-sync-alt"></i> Автообновление: каждые 45 сек
+            </div>
+        </div>
+
+        <div class="refresh-note">
+            <i class="fas fa-sync"></i> Страница обновляется автоматически
+        </div>
+    </div>
+
+    <!-- ФИКСИРОВАННАЯ ПАНЕЛЬ УПРАВЛЕНИЯ ДЛЯ ТЕЛЕФОНА -->
+    <div class="control-bar">
+        <div class="control-grid">
+            <a href="/" class="control-btn active">
+                <i class="fas fa-home"></i>
+                <span>Главная</span>
+            </a>
+            <a href="/force" class="control-btn">
+                <i class="fas fa-play"></i>
+                <span>Старт</span>
+            </a>
+            <a href="/trades" class="control-btn">
+                <i class="fas fa-history"></i>
+                <span>Сделки</span>
+            </a>
+            <a href="/status" class="control-btn">
+                <i class="fas fa-heartbeat"></i>
+                <span>Статус</span>
+            </a>
+            <a href="/test_gigachat_fixed" class="control-btn">
+                <i class="fas fa-robot"></i>
+                <span>ИИ</span>
+            </a>
         </div>
     </div>
 </body>
@@ -543,7 +799,7 @@ async def trading_session_async(force_mode=False):
         
         if not all_news:
             logger.warning("⚠️ Новостей не найдено")
-            bot_status = f"🤖 Ожидание новостей | Сессия #{session_count}"
+            bot_status = f"⏸️ Ожидание новостей | Сессия #{session_count}"
             return
         
         logger.info(f"✅ Получено {len(all_news)} новостей")
@@ -560,7 +816,7 @@ async def trading_session_async(force_mode=False):
         
         if not signals:
             logger.info("ℹ️ Нет торговых сигналов для выполнения")
-            bot_status = f"🤖 Нет сигналов | Сессия #{session_count}"
+            bot_status = f"⏸️ Нет сигналов | Сессия #{session_count}"
             return
         
         logger.info(f"✅ Сформировано {len(signals)} сигналов")
@@ -642,18 +898,17 @@ async def trading_session_async(force_mode=False):
         }
         
         # Обновление статуса
-        current_provider = nlp_engine.get_current_provider()
         risk_stats = risk_manager.get_risk_stats()
         
-        bot_status = (f"🤖 AI Трейдер v3.0 | {current_provider.upper()} | "
-                     f"ROI: {total_virtual_return:+.1f}% | "
-                     f"Сигналов: {len(signals)} | "
-                     f"Риск: {risk_stats['risk_per_trade']}%")
+        if len(signals) > 0:
+            bot_status = f"▶️ Анализ | Сессия #{session_count}"
+        else:
+            bot_status = f"⏸️ Нет сигналов | Сессия #{session_count}"
         
         logger.info(f"💰 СЕССИЯ #{session_count} ЗАВЕРШЕНА")
         logger.info(f"💎 Портфель: {total_value:.2f} руб. ({total_virtual_return:+.2f}%)")
         logger.info(f"🎯 Прибыль за сессию: {session_profit:+.2f} руб.")
-        logger.info(f"📊 Pipeline: {pipeline_stats.get('efficiency', 0):.1f}% эффективность")
+        logger.info(f"📊 Pipeline: {pipeline_stats.get('gigachat_success_rate', 0):.1f}% эффективность")
         
         if executed_trades:
             for trade in executed_trades:
@@ -666,7 +921,7 @@ async def trading_session_async(force_mode=False):
         logger.error(f"❌ КРИТИЧЕСКАЯ ошибка в торговой сессии: {str(e)}")
         import traceback
         logger.error(f"Трейсбек: {traceback.format_exc()[:500]}")
-        bot_status = f"🤖 Ошибка: {str(e)[:50]}..."
+        bot_status = f"⚠️ Ошибка: {str(e)[:30]}..."
         
     finally:
         # ГАРАНТИРОВАННО сбрасываем флаг даже при ошибке
@@ -684,20 +939,10 @@ def schedule_tasks():
     schedule.clear()
     
     # Настройка интервала из переменных окружения
-    check_interval = int(os.getenv("CHECK_INTERVAL_MINUTES", "15"))
+    check_interval = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
     
-    if check_interval <= 15:
-        # Частые проверки в торговые часы (10:00-18:45 МСК)
-        for hour in range(10, 19):  # с 10:00 до 18:00
-            schedule.every().day.at(f"{hour:02d}:00").do(lambda: run_trading_session(False))
-            if check_interval <= 15:
-                schedule.every().day.at(f"{hour:02d}:15").do(lambda: run_trading_session(False))
-                schedule.every().day.at(f"{hour:02d}:30").do(lambda: run_trading_session(False))
-                schedule.every().day.at(f"{hour:02d}:45").do(lambda: run_trading_session(False))
-        logger.info(f"📅 Планировщик настроен: каждые 15 минут с 10:00 до 18:45")
-    else:
-        schedule.every(check_interval).minutes.do(lambda: run_trading_session(False))
-        logger.info(f"📅 Планировщик настроен: каждые {check_interval} минут")
+    schedule.every(check_interval).minutes.do(lambda: run_trading_session(False))
+    logger.info(f"📅 Планировщик настроен: каждые {check_interval} минут")
 
 def run_scheduler():
     """Фоновая задача планировщика"""
@@ -795,7 +1040,7 @@ def test_gigachat_fixed():
         
         return jsonify({
             "status": "success" if analysis else "no_analysis",
-            "gigachat_configured": nlp_engine.providers['gigachat']['enabled'],
+            "gigachat_configured": nlp_engine.enabled,
             "analysis_result": analysis,
             "nlp_stats": nlp_engine.get_stats(),
             "timestamp": datetime.datetime.now().isoformat()
@@ -814,7 +1059,7 @@ def test_gigachat_fixed():
 
 @app.route('/')
 def home():
-    """Главная страница с интерфейсом"""
+    """Главная страница с новым интерфейсом"""
     global request_count
     request_count += 1
     
@@ -826,27 +1071,14 @@ def home():
     virtual_positions = virtual_portfolio.positions
     virtual_portfolio_value = virtual_portfolio.get_total_value({})
     
-    # Получение текущего провайдера ИИ
-    ai_provider = nlp_engine.provider_priority[0] if nlp_engine.provider_priority else "none"
+    # Исправление: GigaChat теперь единственный провайдер
+    ai_provider = "gigachat"
     
-    # Статус источников
-    finam_status = "✅" if finam_verifier.finam_client else "❌"
-    
-    # Pipeline статистика
-    pipeline_efficiency = pipeline_stats.get('efficiency', 0) if pipeline_stats else 0
-    filtered_percent = pipeline_stats.get('filter_rate_percent', 0) if pipeline_stats else 0
-    
-    # Risk parameters
-    risk_stats = risk_manager.get_risk_stats()
-    risk_per_trade = risk_stats.get('risk_per_trade', 1.5)
-    stop_loss = risk_stats['parameters']['stop_loss_pct']
-    take_profit = risk_stats['parameters']['take_profit_pct']
-    
-    # Рендеринг HTML
+    # Рендеринг нового HTML
     return render_template_string(
         HTML_TEMPLATE,
         bot_status=bot_status,
-        uptime=uptime_str,
+        uptime_str=uptime_str,
         session_count=session_count,
         last_trading_time=last_trading_time,
         request_count=request_count,
@@ -857,13 +1089,8 @@ def home():
         last_signals=last_signals[:5] if last_signals else [],
         virtual_positions=virtual_positions,
         ai_provider=ai_provider,
-        finam_status=finam_status,
         pipeline_stats=pipeline_stats,
-        pipeline_efficiency=round(pipeline_efficiency, 1),
-        filtered_percent=round(filtered_percent, 1),
-        risk_per_trade=risk_per_trade,
-        stop_loss=stop_loss,
-        take_profit=take_profit
+        trade_history=trade_history
     )
 
 @app.route('/force')
@@ -920,21 +1147,21 @@ def show_trades():
             <title>История Сделок</title>
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body {{ font-family: Arial; margin: 20px; background: #f8fafc; color: #334155; font-size: 14px; }}
+                body {{ font-family: Arial; margin: 20px; background: #0f172a; color: #e2e8f0; font-size: 14px; }}
                 .positive {{ color: #10b981; }}
                 .negative {{ color: #ef4444; }}
-                .container {{ max-width: 100%; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }}
-                .stats {{ background: #f1f5f9; padding: 15px; border-radius: 8px; margin: 15px 0; }}
-                .risk-params {{ background: #e0e7ff; padding: 12px; border-radius: 6px; margin: 8px 0; }}
-                .back-btn {{ background: #3b82f6; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; display: inline-block; margin-top: 15px; }}
+                .container {{ max-width: 100%; margin: 0 auto; background: #1e293b; padding: 20px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); border: 1px solid #334155; }}
+                .stats {{ background: rgba(30, 41, 59, 0.8); padding: 15px; border-radius: 12px; margin: 15px 0; border: 1px solid #334155; }}
+                .risk-params {{ background: rgba(59, 130, 246, 0.15); padding: 12px; border-radius: 10px; margin: 8px 0; border: 1px solid #3b82f6; }}
+                .back-btn {{ background: #3b82f6; color: white; padding: 10px 16px; text-decoration: none; border-radius: 10px; display: inline-block; margin-top: 15px; font-weight: 600; }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h2>📋 История Сделок</h2>
+                <h2 style="color: #f1f5f9; margin-bottom: 20px;">📋 История Сделок</h2>
                 
                 <div class="stats">
-                    <h4>📊 Статистика</h4>
+                    <h4 style="color: #94a3b8; margin-bottom: 10px;">📊 Статистика</h4>
                     <p><strong>Всего сделок:</strong> {len(trade_history)}</p>
                     <p><strong>Портфель:</strong> {virtual_portfolio.get_total_value({}):.0f} руб. 
                     (<span class="{{'positive' if total_virtual_return >= 0 else 'negative'}}">{total_virtual_return:+.1f}%</span>)</p>
@@ -942,13 +1169,13 @@ def show_trades():
                 </div>
                 
                 <div class="risk-params">
-                    <h4>🎯 Риски</h4>
+                    <h4 style="color: #94a3b8; margin-bottom: 10px;">🎯 Риски</h4>
                     <p><strong>Риск на сделку:</strong> {risk_stats.get('risk_per_trade', 1.5)}%</p>
                     <p><strong>Стоп-лосс:</strong> {risk_stats['parameters']['stop_loss_pct']}%</p>
                     <p><strong>Тейк-профит:</strong> {risk_stats['parameters']['take_profit_pct']}%</p>
                 </div>
                 
-                {trades_html if trade_history else "<p>Сделок еще нет</p>"}
+                {trades_html if trade_history else "<p style='text-align: center; color: #94a3b8;'>Сделок еще нет</p>"}
                 
                 <p style="margin-top: 20px;">
                     <a href="/" class="back-btn">← На главную</a>
@@ -985,14 +1212,12 @@ def status():
         "last_news_count": last_news_count,
         "last_signals_count": len(last_signals) if last_signals else 0,
         "timestamp": datetime.datetime.now().isoformat(),
-        "strategy": "Signal Pipeline News Trading",
+        "strategy": "GigaChat Dynamic Risk",
         "trading_mode": os.getenv("TRADING_MODE", "AGGRESSIVE_TEST"),
-        "check_interval": os.getenv("CHECK_INTERVAL_MINUTES", 15),
-        "ai_provider": nlp_engine.get_current_provider(),
+        "check_interval": os.getenv("CHECK_INTERVAL_MINUTES", 30),
+        "ai_provider": "gigachat",  # Исправлено - был вызов несуществующего метода
         "providers_configured": {
-            "gigachat": nlp_engine.providers['gigachat']['enabled'],
-            "openrouter": nlp_engine.providers['openrouter']['enabled'],
-            "finam": bool(finam_verifier.finam_client),  # ← Исправлено
+            "gigachat": nlp_engine.enabled,
             "enhanced_analyzer": True
         }
     })
@@ -1012,7 +1237,7 @@ def detailed_stats():
     ai_avg = sum(ai_profits)/len(ai_profits) if ai_profits else 0
     simple_avg = sum(simple_profits)/len(simple_profits) if simple_profits else 0
     
-    pipeline_efficiency = pipeline_stats.get('efficiency', 0) if pipeline_stats else 0
+    pipeline_efficiency = pipeline_stats.get('gigachat_success_rate', 0) if pipeline_stats else 0
     
     return jsonify({
         "performance_summary": {
@@ -1032,7 +1257,7 @@ def detailed_stats():
         },
         "risk_management": {
             "current_capital": risk_stats.get('current_capital', 100000),
-            "risk_per_trade": risk_stats.get('risk_per_trade', 1.5),
+            "risk_per_trade": risk_stats.get('risk_per_trade', 2.5),
             "sector_risks": risk_stats.get('sector_risks', {}),
             "open_positions": len(virtual_portfolio.positions),
             "max_drawdown": portfolio_stats.get('max_drawdown', 0)
@@ -1089,16 +1314,10 @@ def test_providers_page():
     
     providers_info = {
         'gigachat': {
-            'configured': nlp_engine.providers['gigachat']['enabled'],
-            'status': '✅ Настроен' if nlp_engine.providers['gigachat']['enabled'] else '❌ Не настроен',
+            'configured': nlp_engine.enabled,
+            'status': '✅ Настроен' if nlp_engine.enabled else '❌ Не настроен',
             'client_id_preview': os.getenv('GIGACHAT_CLIENT_ID', '')[:10] + '...' if os.getenv('GIGACHAT_CLIENT_ID') else 'Нет',
             'client_secret_preview': '****' + os.getenv('GIGACHAT_CLIENT_SECRET', '')[-4:] if os.getenv('GIGACHAT_CLIENT_SECRET') else 'Нет'
-        },
-        'openrouter': {
-            'configured': nlp_engine.providers['openrouter']['enabled'],
-            'status': '✅ Настроен' if nlp_engine.providers['openrouter']['enabled'] else '❌ Не настроен',
-            'token_preview': os.getenv('OPENROUTER_API_TOKEN', '')[:10] + '...' if os.getenv('OPENROUTER_API_TOKEN') else 'Нет',
-            'models_count': len(nlp_engine.openrouter_models)
         },
         'finam': {
             'configured': bool(finam_verifier.finam_client),
@@ -1114,10 +1333,10 @@ def test_providers_page():
             <title>Тест провайдеров</title>
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body {{ font-family: Arial; margin: 20px; background: #f8fafc; color: #334155; font-size: 14px; }}
-                .container {{ max-width: 100%; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }}
-                .provider {{ padding: 15px; margin: 12px 0; border-radius: 8px; border-left: 4px solid #3b82f6; background: #f1f5f9; }}
-                .btn {{ display: inline-block; padding: 10px 16px; margin: 6px 4px; border-radius: 6px; text-decoration: none; color: white; font-weight: 600; font-size: 0.9rem; }}
+                body {{ font-family: Arial; margin: 20px; background: #0f172a; color: #e2e8f0; font-size: 14px; }}
+                .container {{ max-width: 100%; margin: 0 auto; background: #1e293b; padding: 20px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); border: 1px solid #334155; }}
+                .provider {{ padding: 15px; margin: 12px 0; border-radius: 12px; border-left: 4px solid #3b82f6; background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; }}
+                .btn {{ display: inline-block; padding: 10px 16px; margin: 6px 4px; border-radius: 10px; text-decoration: none; color: white; font-weight: 600; font-size: 0.9rem; border: none; }}
                 .btn-test {{ background: #10b981; }}
                 .btn-back {{ background: #3b82f6; }}
                 .btn-pipeline {{ background: #8b5cf6; }}
@@ -1125,10 +1344,10 @@ def test_providers_page():
         </head>
         <body>
             <div class="container">
-                <h2>🔧 Тестирование провайдеров</h2>
+                <h2 style="color: #f1f5f9; margin-bottom: 20px;">🔧 Тестирование провайдеров</h2>
                 
                 <div class="provider">
-                    <h4>🏦 GigaChat API</h4>
+                    <h4 style="color: #94a3b8; margin-bottom: 10px;">🏦 GigaChat API</h4>
                     <p><strong>Статус:</strong> {providers_info['gigachat']['status']}</p>
                     <p><strong>Client ID:</strong> {providers_info['gigachat']['client_id_preview']}</p>
                     <p><strong>Scope:</strong> GIGACHAT_API_PERS</p>
@@ -1136,13 +1355,7 @@ def test_providers_page():
                 </div>
                 
                 <div class="provider">
-                    <h4>🌍 OpenRouter</h4>
-                    <p><strong>Статус:</strong> {providers_info['openrouter']['status']}</p>
-                    <p><strong>Модели:</strong> {providers_info['openrouter']['models_count']} бесплатных</p>
-                </div>
-                
-                <div class="provider">
-                    <h4>🏦 Finam API</h4>
+                    <h4 style="color: #94a3b8; margin-bottom: 10px;">🏦 Finam API</h4>
                     <p><strong>Статус:</strong> {providers_info['finam']['status']}</p>
                     <p><strong>Тикеров:</strong> {providers_info['finam']['liquid_tickers']}</p>
                     <a href="/test_finam" class="btn btn-test">🧪 Тест Finam</a>
@@ -1179,43 +1392,6 @@ def show_env():
         "total_vars": len(env_vars),
         "timestamp": datetime.datetime.now().isoformat()
     })
-
-@app.route('/debug_prefilter')
-def debug_prefilter():
-    """Отладка префильтра"""
-    async def _debug():
-        all_news = await news_fetcher.fetch_all_news()
-        
-        debug_results = []
-        for i, news in enumerate(all_news[:5]):
-            is_tradable = news_prefilter.is_tradable(news)
-            
-            title = news.get('title', '')[:100]
-            content = news.get('content', '')[:200] or news.get('description', '')[:200]
-            text = f"{title} {content}".lower()
-            
-            accept_count = sum(1 for kw in news_prefilter.accept_keywords if kw in text)
-            reject_count = sum(1 for kw in news_prefilter.reject_keywords if kw in text)
-            
-            debug_results.append({
-                'index': i,
-                'title': title,
-                'is_tradable': is_tradable,
-                'accept_keywords': accept_count,
-                'reject_keywords': reject_count,
-                'text_preview': text[:150]
-            })
-        
-        return debug_results
-    
-    try:
-        results = asyncio.run(_debug())
-        return jsonify({
-            "debug": results,
-            "prefilter_stats": news_prefilter.get_filter_stats(all_news[:10])
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)})
 
 @app.route('/check_gigachat')
 def check_gigachat():
@@ -1289,35 +1465,6 @@ def test_openrouter():
         return asyncio.run(_test())
     except Exception as e:
         return jsonify({"error": str(e)})
-
-@app.route('/check_secret')
-def check_secret():
-    """Проверка формата GigaChat secret"""
-    import base64
-    
-    secret = os.getenv('GIGACHAT_CLIENT_SECRET', '')
-    client_id = os.getenv('GIGACHAT_CLIENT_ID', '')
-    
-    try:
-        decoded = base64.b64decode(secret).decode('utf-8')
-        is_base64 = True
-        parts = decoded.split(':')
-        
-        return jsonify({
-            "is_base64": is_base64,
-            "original_length": len(secret),
-            "decoded": decoded[:50] + "..." if len(decoded) > 50 else decoded,
-            "parts_count": len(parts),
-            "client_id_match": parts[0] == client_id if len(parts) > 0 else False,
-            "has_secret": len(parts) > 1,
-            "secret_preview": parts[1][:10] + "..." if len(parts) > 1 and len(parts[1]) > 10 else parts[1] if len(parts) > 1 else None
-        })
-    except:
-        return jsonify({
-            "is_base64": False,
-            "original_length": len(secret),
-            "client_id": client_id[:20] + "..." if len(client_id) > 20 else client_id
-        })
 
 if __name__ == '__main__':
     # Запуск планировщика
