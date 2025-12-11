@@ -9,6 +9,9 @@ import os
 import asyncio
 import json
 from typing import Dict, List
+from nlp_engine import NlpEngine  # <-- Используется новый класс
+from risk_manager import RiskManager  # <-- Используется новый класс
+from signal_pipeline import SignalPipeline  # <-- Используется новый класс
 
 # ===== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: принудительная загрузка переменных окружения =====
 from dotenv import load_dotenv
@@ -1325,21 +1328,77 @@ if __name__ == '__main__':
     
     # Инициализация системы
     logger.info("=" * 60)
-    logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' v3.0 ЗАПУЩЕН!")
-    logger.info(f"🏦 Основной провайдер: GigaChat API {'✅' if nlp_engine.providers['gigachat']['enabled'] else '❌'}")
-    logger.info(f"🌍 Резервный провайдер: OpenRouter API {'✅' if nlp_engine.providers['openrouter']['enabled'] else '❌'}")
-    logger.info(f"🏦 Finam API: {'✅' if finam_verifier.finam_client else '❌'}")
-    logger.info(f"🧠 EnhancedAnalyzer: ✅ ({len(enhanced_analyzer.TICKER_MAP)} тикеров)")
-    logger.info(f"⚡ Режим: {os.getenv('TRADING_MODE', 'AGGRESSIVE_TEST')}")
-    logger.info(f"⏰ Проверки: каждые {os.getenv('CHECK_INTERVAL_MINUTES', 15)} минут")
-    logger.info(f"📊 Портфель: 100,000 руб. (виртуальный)")
-    logger.info("🎯 Параметры стратегии:")
-    logger.info(f"   • Риск на сделку: {risk_manager.risk_per_trade}%")
-    logger.info(f"   • Стоп-лосс: {risk_manager.stop_loss_pct}%")
-    logger.info(f"   • Тейк-профит: {risk_manager.take_profit_pct}%")
-    logger.info(f"   • Макс. на тикер: {risk_manager.max_risk_per_ticker}%")
-    logger.info(f"   • Макс. на сектор: {risk_manager.max_risk_per_sector}%")
-    logger.info("🌐 Веб-интерфейс: http://0.0.0.0:10000")
+    logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' v4.0 ЗАПУЩЕН!")
+    logger.info(f"🏦 ИИ-ПРОВАЙДЕР: GigaChat API {'✅' if nlp_engine.enabled else '❌ ВЫКЛ (проверь ключи!)'}")
+    
+    # Статистика GigaChat
+    if nlp_engine.enabled:
+        giga_stats = nlp_engine.get_stats()
+        logger.info(f"   • Токен активен: {'✅' if nlp_engine.gigachat_auth and nlp_engine.gigachat_auth.access_token else '❌'}")
+        logger.info(f"   • Семафор: {giga_stats.get('semaphore_queue', 1)} одновременных запроса")
+    else:
+        logger.warning("   ⚠️ GigaChat отключен! Система будет работать без ИИ-анализа")
+    
+    # RiskManager информация
+    risk_stats = risk_manager.get_risk_stats()
+    logger.info(f"🎯 РИСК-МЕНЕДЖМЕНТ: АГРЕССИВНЫЙ ТЕСТ (динамический)")
+    logger.info(f"   • Базовый риск: {risk_manager.risk_per_trade}% капитала")
+    logger.info(f"   • Диапазон риска: {risk_manager.impact_multipliers[1]*100:.0f}%-{risk_manager.impact_multipliers[10]*100:.0f}% от базового")
+    logger.info(f"   • Стоп-лосс: {risk_manager.stop_loss_pct}% (динамический)")
+    logger.info(f"   • Тейк-профит: {risk_manager.take_profit_pct}% (динамический)")
+    logger.info(f"   • Мин. confidence: {risk_manager.min_confidence}")
+    logger.info(f"   • Мин. impact_score: {risk_manager.min_impact_score}")
+    
+    # Портфельные лимиты
+    logger.info(f"💰 УПРАВЛЕНИЕ КАПИТАЛОМ:")
+    logger.info(f"   • Макс. позиция: {risk_manager.portfolio_limits['max_position_value']*100:.0f}% портфеля")
+    logger.info(f"   • STOP ALL при: {risk_manager.portfolio_limits['max_daily_loss']*100:.0f}% дневной просадки")
+    logger.info(f"   • Капитал: {risk_manager.current_capital:.0f} руб. (виртуальный)")
+    
+    # Источники данных
+    logger.info(f"📊 ДАННЫЕ И ИСТОЧНИКИ:")
+    logger.info(f"   • Finam API: {'✅' if finam_verifier.finam_client else '❌'}")
+    logger.info(f"   • MOEX источники: {len(news_fetcher.rss_feeds)} RSS")
+    logger.info(f"   • NewsAPI: {'✅' if news_fetcher.newsapi_key else '❌'}")
+    logger.info(f"   • EnhancedAnalyzer: ✅ ({len(enhanced_analyzer.TICKER_MAP)} тикеров)")
+    
+    # Конвейер
+    pipeline_stats = signal_pipeline.get_stats()
+    logger.info(f"⚙️ КОНВЕЙЕР ОБРАБОТКИ:")
+    logger.info(f"   • Режим: {pipeline_stats.get('processing_mode', 'gigachat_sequential')}")
+    logger.info(f"   • Кэш новостей: {pipeline_stats.get('news_cache_size', 0)} записей")
+    logger.info(f"   • TTL кэша: {signal_pipeline.cache_ttl} сек.")
+    
+    # Режим работы
+    logger.info(f"⚡ РЕЖИМ РАБОТЫ:")
+    logger.info(f"   • Торговый режим: {os.getenv('TRADING_MODE', 'AGGRESSIVE_TEST')}")
+    logger.info(f"   • Проверка каждые: {os.getenv('CHECK_INTERVAL_MINUTES', 30)} минут")
+    logger.info(f"   • Фильтр новостей: УСИЛЕННЫЙ (PreFilter)")
+    
+    # Доступные эндпоинты
+    logger.info(f"🌐 ВЕБ-ИНТЕРФЕЙС И API:")
+    logger.info(f"   • Веб-интерфейс: http://0.0.0.0:10000")
+    logger.info(f"   • Статус системы: /status")
+    logger.info(f"   • Тест GigaChat: /test_gigachat_fixed")
+    logger.info(f"   • Тест пайплайна: /test_pipeline")
+    logger.info(f"   • История сделок: /trades")
+    
+    # Предупреждения
+    if not nlp_engine.enabled:
+        logger.warning("⚠️  ВНИМАНИЕ: GigaChat отключен! Система будет работать только на EnhancedAnalyzer")
+        logger.warning("   Настрой GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET в переменных окружения")
+    
+    if not finam_verifier.finam_client:
+        logger.warning("⚠️  ВНИМАНИЕ: Finam API недоступен! Будут использоваться fallback цены")
+        logger.warning("   Настрой FINAM_API_TOKEN для получения реальных цен")
+    
+    # Итоговая информация
+    logger.info("=" * 60)
+    logger.info("🎯 СТРАТЕГИЯ: GigaChat Dynamic Risk")
+    logger.info("   • Все сигналы проходят через GigaChat")
+    logger.info("   • Риск адаптируется под impact_score (1-10)")
+    logger.info("   • Сильные сигналы → больше капитала, ужеще стопы")
+    logger.info("   • Слабые сигналы → меньше капитала, шире стопы")
     logger.info("=" * 60)
     
     # Запуск Flask приложения
