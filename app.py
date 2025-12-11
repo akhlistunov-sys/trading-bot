@@ -1,4 +1,4 @@
-# app.py - ПОЛНАЯ РАБОЧАЯ ВЕРСИЯ С НОВЫМ ИНТЕРФЕЙСОМ
+# app.py - ИСПРАВЛЕННАЯ ВЕРСИЯ С ПРОВЕРКОЙ ОШИБОК
 from flask import Flask, jsonify, render_template_string, request
 import datetime
 import time
@@ -16,13 +16,6 @@ from dotenv import load_dotenv
 # Принудительно загружаем переменные окружения из Render Dashboard
 load_dotenv(override=True)
 
-# Логируем ЗАГРУЖЕННЫЕ значения для отладки
-loaded_confidence = os.getenv("MIN_CONFIDENCE", "NOT_FOUND")
-loaded_impact = os.getenv("MIN_IMPACT_SCORE", "NOT_FOUND")
-loaded_position = os.getenv("BASE_POSITION_SIZE", "NOT_FOUND")
-loaded_stop = os.getenv("BASE_STOP_LOSS", "NOT_FOUND")
-loaded_risk = os.getenv("RISK_PER_TRADE", "NOT_FOUND")
-
 # Инициализируем логирование сразу после загрузки переменных
 logging.basicConfig(
     level=logging.INFO,
@@ -34,25 +27,24 @@ logger = logging.getLogger(__name__)
 # Логируем факт загрузки переменных
 logger.info("=" * 60)
 logger.info("🔧 ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ЗАГРУЖЕНЫ:")
-logger.info(f"   • RISK_PER_TRADE: {loaded_risk}")
-logger.info(f"   • MIN_CONFIDENCE: {loaded_confidence}")
-logger.info(f"   • MIN_IMPACT_SCORE: {loaded_impact}")
-logger.info(f"   • BASE_POSITION_SIZE: {loaded_position}")
-logger.info(f"   • BASE_STOP_LOSS: {loaded_stop}")
 logger.info("=" * 60)
-# ===== КОНЕЦ ИСПРАВЛЕНИЯ =====
 
 # ТЕПЕРЬ импортируем наши модули
-from news_fetcher import NewsFetcher
-from nlp_engine import NlpEngine
-from decision_engine import DecisionEngine
-from tinkoff_executor import TinkoffExecutor
-from virtual_portfolio import VirtualPortfolioPro
-from enhanced_analyzer import EnhancedAnalyzer
-from news_prefilter import NewsPreFilter
-from finam_verifier import FinamVerifier
-from risk_manager import RiskManager
-from signal_pipeline import SignalPipeline
+try:
+    from news_fetcher import NewsFetcher
+    from nlp_engine import NlpEngine
+    from decision_engine import DecisionEngine
+    from tinkoff_executor import TinkoffExecutor
+    from virtual_portfolio import VirtualPortfolioPro
+    from enhanced_analyzer import EnhancedAnalyzer
+    from news_prefilter import NewsPreFilter
+    from finam_verifier import FinamVerifier
+    from risk_manager import RiskManager
+    from signal_pipeline import SignalPipeline
+    logger.info("✅ Все модули импортированы")
+except ImportError as e:
+    logger.error(f"❌ Ошибка импорта модулей: {e}")
+    raise
 
 app = Flask(__name__)
 
@@ -71,34 +63,38 @@ system_stats = {}
 pipeline_stats = {}
 start_time = datetime.datetime.now()
 
-# Инициализация всех модулей
+# Инициализация всех модулей с обработкой ошибок
 logger.info("🔧 Инициализация всех модулей...")
 
-news_fetcher = NewsFetcher()
-nlp_engine = NlpEngine()
-finam_verifier = FinamVerifier()
-risk_manager = RiskManager(initial_capital=100000)
-enhanced_analyzer = EnhancedAnalyzer()
-news_prefilter = NewsPreFilter()
-tinkoff_executor = TinkoffExecutor()
-virtual_portfolio = VirtualPortfolioPro(initial_capital=100000)
-
-# Создаём SignalPipeline
-signal_pipeline = SignalPipeline(
-    nlp_engine=nlp_engine,
-    finam_verifier=finam_verifier,
-    risk_manager=risk_manager,
-    enhanced_analyzer=enhanced_analyzer,
-    news_prefilter=news_prefilter
-)
-
-# DecisionEngine с интеграцией RiskManager
-decision_engine = DecisionEngine(risk_manager=risk_manager)
-
-logger.info("✅ Все модули инициализированы")
+try:
+    news_fetcher = NewsFetcher()
+    nlp_engine = NlpEngine()
+    finam_verifier = FinamVerifier()
+    risk_manager = RiskManager(initial_capital=100000)
+    enhanced_analyzer = EnhancedAnalyzer()
+    news_prefilter = NewsPreFilter()
+    tinkoff_executor = TinkoffExecutor()
+    virtual_portfolio = VirtualPortfolioPro(initial_capital=100000)
+    
+    # Создаём SignalPipeline
+    signal_pipeline = SignalPipeline(
+        nlp_engine=nlp_engine,
+        finam_verifier=finam_verifier,
+        risk_manager=risk_manager,
+        enhanced_analyzer=enhanced_analyzer,
+        news_prefilter=news_prefilter
+    )
+    
+    # DecisionEngine с интеграцией RiskManager
+    decision_engine = DecisionEngine(risk_manager=risk_manager)
+    
+    logger.info("✅ Все модули инициализированы")
+except Exception as e:
+    logger.error(f"❌ Критическая ошибка инициализации: {e}")
+    raise
 
 # ============================================
-# НОВЫЙ HTML ШАБЛОН - КАБИНЕТ УПРАВЛЯЮЩЕГО
+# ИСПРАВЛЕННЫЙ HTML ШАБЛОН - БЕЗ ОШИБОК
 # ============================================
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -137,7 +133,7 @@ HTML_TEMPLATE = '''
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             line-height: 1.5;
             font-size: 15px;
-            padding-bottom: 80px; /* Для фиксированной панели */
+            padding-bottom: 80px;
             min-height: 100vh;
         }
 
@@ -434,7 +430,7 @@ HTML_TEMPLATE = '''
             color: var(--text-secondary);
         }
 
-        /* ===== ФИКСИРОВАННАЯ ПАНЕЛЬ УПРАВЛЕНИЯ (ДЛЯ ТЕЛЕФОНА) ===== */
+        /* ===== ФИКСИРОВАННАЯ ПАНЕЛЬ УПРАВЛЕНИЯ ===== */
         .control-bar {
             position: fixed;
             bottom: 0;
@@ -530,8 +526,6 @@ HTML_TEMPLATE = '''
         .mb-3 { margin-bottom: 12px; }
         .mb-4 { margin-bottom: 16px; }
         
-        .hidden { display: none; }
-        
         .refresh-note {
             text-align: center;
             color: var(--text-secondary);
@@ -539,6 +533,15 @@ HTML_TEMPLATE = '''
             padding: 12px;
             border-top: 1px solid var(--border-color);
             margin-top: 20px;
+        }
+        
+        .error-message {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--accent-red);
+            border-radius: 12px;
+            padding: 16px;
+            margin: 16px 0;
+            color: var(--accent-red);
         }
     </style>
 </head>
@@ -555,7 +558,7 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
             <div class="status-bar">
-                <div class="status-badge {% if bot_status.startswith('▶️') %}active{% else %}paused{% endif %}">
+                <div class="status-badge {% if bot_status.startswith('▶️') or bot_status.startswith('🚀') %}active{% else %}paused{% endif %}">
                     <i class="fas fa-robot"></i>
                     <span>{{ bot_status }}</span>
                 </div>
@@ -613,7 +616,7 @@ HTML_TEMPLATE = '''
             
             <div class="metric-card">
                 <div class="metric-label">Сделок</div>
-                <div class="metric-value">{{ trade_history|length }}</div>
+                <div class="metric-value">{{ trade_history|length if trade_history else 0 }}</div>
                 <div class="metric-subtext">Всего исполнено</div>
             </div>
             
@@ -637,7 +640,7 @@ HTML_TEMPLATE = '''
         </div>
 
         <!-- ЛЕНТА СИГНАЛОВ GIGACHAT -->
-        {% if last_signals %}
+        {% if last_signals and last_signals|length > 0 %}
         <div class="signals-section">
             <div class="section-header">
                 <h2 class="section-title">
@@ -649,34 +652,36 @@ HTML_TEMPLATE = '''
             
             <div class="signal-list">
                 {% for signal in last_signals[:5] %}
-                <div class="signal-card {{ signal.action|lower }}">
+                <div class="signal-card {{ signal.action|lower if signal.action else 'neutral' }}">
                     <div class="signal-header">
                         <div class="signal-ticker">
                             {% if signal.action == 'BUY' %}
                                 <i class="fas fa-arrow-up positive"></i>
-                            {% else %}
+                            {% elif signal.action == 'SELL' %}
                                 <i class="fas fa-arrow-down negative"></i>
+                            {% else %}
+                                <i class="fas fa-minus neutral"></i>
                             {% endif %}
-                            {{ signal.ticker }}
-                            <span class="text-sm neutral">×{{ signal.position_size }}</span>
+                            {{ signal.ticker if signal.ticker else 'N/A' }}
+                            <span class="text-sm neutral">×{{ signal.position_size if signal.position_size else 1 }}</span>
                         </div>
                         <div class="signal-confidence">
-                            {{ "%.2f"|format(signal.confidence) }}
+                            {{ "%.2f"|format(signal.confidence) if signal.confidence else "0.00" }}
                         </div>
                     </div>
                     
                     <div class="signal-meta">
-                        <span><i class="fas fa-project-diagram"></i> {{ signal.event_type|replace('_', ' ')|title }}</span>
-                        <span><i class="fas fa-wave-square"></i> Impact: {{ signal.impact_score }}/10</span>
-                        <span><i class="fas fa-clock"></i> {{ signal.timestamp[11:19] }}</span>
+                        <span><i class="fas fa-project-diagram"></i> {{ signal.event_type|replace('_', ' ')|title if signal.event_type else 'N/A' }}</span>
+                        <span><i class="fas fa-wave-square"></i> Impact: {{ signal.impact_score if signal.impact_score else 0 }}/10</span>
+                        <span><i class="fas fa-clock"></i> {{ signal.timestamp[11:19] if signal.timestamp else 'N/A' }}</span>
                     </div>
                     
                     <div class="signal-reason mb-2">
-                        {{ signal.reason[:80] }}{% if signal.reason|length > 80 %}...{% endif %}
+                        {{ signal.reason[:80] if signal.reason else 'Нет описания' }}{% if signal.reason and signal.reason|length > 80 %}...{% endif %}
                     </div>
                     
-                    <div class="impact-badge {% if signal.impact_score >= 7 %}impact-high{% elif signal.impact_score >= 4 %}impact-medium{% else %}impact-low{% endif %}">
-                        Сила сигнала: {{ signal.impact_score }}/10
+                    <div class="impact-badge {% if signal.impact_score and signal.impact_score >= 7 %}impact-high{% elif signal.impact_score and signal.impact_score >= 4 %}impact-medium{% else %}impact-low{% endif %}">
+                        Сила сигнала: {{ signal.impact_score if signal.impact_score else 0 }}/10
                     </div>
                 </div>
                 {% endfor %}
@@ -685,27 +690,27 @@ HTML_TEMPLATE = '''
         {% endif %}
 
         <!-- АКТИВНЫЕ ПОЗИЦИИ -->
-        {% if virtual_portfolio.positions %}
+        {% if portfolio_positions and portfolio_positions|length > 0 %}
         <div class="signals-section">
             <div class="section-header">
                 <h2 class="section-title">
                     <i class="fas fa-chart-line"></i>
                     Активные позиции
                 </h2>
-                <span class="text-sm">{{ virtual_portfolio.positions|length }} открыто</span>
+                <span class="text-sm">{{ portfolio_positions|length }} открыто</span>
             </div>
             
             <div class="signal-list">
-                {% for ticker, pos in virtual_portfolio.positions.items() %}
+                {% for ticker, pos in portfolio_positions.items() %}
                 <div class="signal-card">
                     <div class="signal-header">
                         <div class="signal-ticker">
                             <i class="fas fa-coins positive"></i>
                             {{ ticker }}
-                            <span class="text-sm neutral">×{{ pos.size }}</span>
+                            <span class="text-sm neutral">×{{ pos.size if pos.size else 0 }}</span>
                         </div>
                         <div class="signal-confidence">
-                            {{ "%.0f"|format(pos.avg_price) }} ₽
+                            {{ "%.0f"|format(pos.avg_price) if pos.avg_price else "0" }} ₽
                         </div>
                     </div>
                     
@@ -715,8 +720,8 @@ HTML_TEMPLATE = '''
                     </div>
                     
                     <div class="signal-reason">
-                        Стоп: {{ "%.2f"|format(pos.stop_loss) }} ₽ (-{{ pos.stop_loss_percent }}%)
-                        | Тейк: {{ "%.2f"|format(pos.take_profit) }} ₽ (+{{ pos.take_profit_percent }}%)
+                        Стоп: {{ "%.2f"|format(pos.stop_loss) if pos.stop_loss else "0.00" }} ₽ 
+                        (-{{ pos.stop_loss_percent if pos.stop_loss_percent else "0.0" }}%)
                     </div>
                 </div>
                 {% endfor %}
@@ -898,8 +903,6 @@ async def trading_session_async(force_mode=False):
         }
         
         # Обновление статуса
-        risk_stats = risk_manager.get_risk_stats()
-        
         if len(signals) > 0:
             bot_status = f"▶️ Анализ | Сессия #{session_count}"
         else:
@@ -1068,11 +1071,13 @@ def home():
     uptime_str = str(uptime).split('.')[0]
     
     # Получение данных о портфеле
-    virtual_positions = virtual_portfolio.positions
-    virtual_portfolio_value = virtual_portfolio.get_total_value({})
-    
-    # Исправление: GigaChat теперь единственный провайдер
-    ai_provider = "gigachat"
+    try:
+        virtual_portfolio_value = virtual_portfolio.get_total_value({})
+        portfolio_positions = virtual_portfolio.positions
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения данных портфеля: {e}")
+        virtual_portfolio_value = 100000
+        portfolio_positions = {}
     
     # Рендеринг нового HTML
     return render_template_string(
@@ -1087,8 +1092,7 @@ def home():
         total_virtual_profit=total_virtual_profit,
         last_news_count=last_news_count,
         last_signals=last_signals[:5] if last_signals else [],
-        virtual_positions=virtual_positions,
-        ai_provider=ai_provider,
+        portfolio_positions=portfolio_positions,  # Переименовано для ясности
         pipeline_stats=pipeline_stats,
         trade_history=trade_history
     )
@@ -1215,7 +1219,7 @@ def status():
         "strategy": "GigaChat Dynamic Risk",
         "trading_mode": os.getenv("TRADING_MODE", "AGGRESSIVE_TEST"),
         "check_interval": os.getenv("CHECK_INTERVAL_MINUTES", 30),
-        "ai_provider": "gigachat",  # Исправлено - был вызов несуществующего метода
+        "ai_provider": "gigachat",
         "providers_configured": {
             "gigachat": nlp_engine.enabled,
             "enhanced_analyzer": True
@@ -1475,7 +1479,7 @@ if __name__ == '__main__':
     
     # Инициализация системы
     logger.info("=" * 60)
-    logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' v4.0 ЗАПУЩЕН!")
+    logger.info("🚀 AI НОВОСТНОЙ ТРЕЙДЕР 'SENTIMENT HUNTER' v4.1 ЗАПУЩЕН!")
     logger.info(f"🏦 ИИ-ПРОВАЙДЕР: GigaChat API {'✅' if nlp_engine.enabled else '❌ ВЫКЛ (проверь ключи!)'}")
     
     # Статистика GigaChat
@@ -1549,4 +1553,8 @@ if __name__ == '__main__':
     logger.info("=" * 60)
     
     # Запуск Flask приложения
-    app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
+    try:
+        app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
+    except Exception as e:
+        logger.error(f"❌ Ошибка запуска Flask: {e}")
+        raise
