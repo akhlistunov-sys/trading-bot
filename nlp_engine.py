@@ -111,7 +111,7 @@ class NlpEngine:
             'deepseek': {
                 'url': 'https://api.deepseek.com/v1/chat/completions',
                 'token': deepseek_api_key,
-                'enabled': bool(deepseek_api_key),
+                'enabled': False,
                 'priority': 2,
                 'model': 'deepseek-chat',
                 'semaphore': self.deepseek_semaphore
@@ -121,7 +121,7 @@ class NlpEngine:
                 'token': openrouter_api_key,
                 'enabled': bool(openrouter_api_key),
                 'priority': 3,
-                'models': ['google/gemini-2.0-flash:free', 'mistralai/mistral-7b-instruct:free'],
+                'models': ['google/gemini-2.0-flash-001:free', 'mistralai/mistral-7b-instruct:free'],
                 'semaphore': self.openrouter_semaphore
             }
         }
