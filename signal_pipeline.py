@@ -1,4 +1,4 @@
-# signal_pipeline.py - УПРОЩЕННЫЙ ПАЙПЛАЙН С GIGACHAT
+# signal_pipeline.py - ГИБРИДНЫЙ ПАЙПЛАЙН С GIGACHAT И ТЕХНИЧЕСКИМ АНАЛИЗОМ
 import logging
 import asyncio
 from datetime import datetime
@@ -8,48 +8,69 @@ import hashlib
 logger = logging.getLogger(__name__)
 
 class SignalPipeline:
-    """Упрощенный конвейер обработки с GigaChat"""
+    """Гибридный конвейер обработки с GigaChat и Техническим анализом"""
     
-    def __init__(self, nlp_engine, finam_verifier, risk_manager, enhanced_analyzer, news_prefilter):
+    def __init__(self, nlp_engine, finam_verifier, risk_manager, 
+                 enhanced_analyzer, news_prefilter, technical_strategy=None):
         self.nlp_engine = nlp_engine
         self.finam_verifier = finam_verifier
         self.risk_manager = risk_manager
         self.enhanced_analyzer = enhanced_analyzer
         self.news_prefilter = news_prefilter
+        self.technical_strategy = technical_strategy
         
         # Кэш для предотвращения дублирования
         self.news_cache = {}
+        self.technical_cache = {}
         self.cache_ttl = 300  # 5 минут
         
         self.stats = {
             'total_news': 0,
+            'total_technical_scans': 0,
             'filtered_news': 0,
             'gigachat_requests': 0,
             'gigachat_success': 0,
+            'technical_signals': 0,
             'verification_passed': 0,
             'signals_generated': 0,
+            'hybrid_signals': 0,
             'pipeline_start': datetime.now().isoformat()
         }
         
-        logger.info("🚀 SignalPipeline инициализирован (GigaChat-centric)")
-        logger.info("   Этапы: PreFilter → GigaChat → Finam → RiskManager")
+        logger.info("🚀 Гибридный SignalPipeline инициализирован")
+        logger.info("   Этапы: PreFilter → GigaChat/Technical → Finam → RiskManager")
+        logger.info(f"   Тех. анализ: {'✅' if technical_strategy else '❌'}")
     
     async def process_news_batch(self, news_list: List[Dict]) -> List[Dict]:
-        """Пакетная обработка новостей"""
+        """Пакетная обработка новостей + параллельный технический анализ"""
         
         self.stats['total_news'] += len(news_list)
         
-        logger.info(f"📊 Обработка {len(news_list)} новостей через GigaChat...")
+        logger.info(f"📊 Гибридная обработка {len(news_list)} новостей...")
         
         signals = []
+        
+        # 1. ПАРАЛЛЕЛЬНО: Технический анализ (если доступен)
+        technical_signals = []
+        if self.technical_strategy:
+            try:
+                self.stats['total_technical_scans'] += 1
+                tech_signals = await self.technical_strategy.scan_for_signals()
+                self.stats['technical_signals'] += len(tech_signals)
+                technical_signals = tech_signals
+                logger.info(f"📈 Тех. анализ: {len(tech_signals)} сигналов")
+            except Exception as e:
+                logger.error(f"❌ Ошибка технического анализа: {str(e)[:100]}")
+        
+        # 2. ПОСЛЕДОВАТЕЛЬНАЯ обработка новостей для стабильности
+        news_signals = []
         processed = 0
         
-        # ПОСЛЕДОВАТЕЛЬНАЯ обработка для стабильности
         for news_item in news_list:
             try:
                 signal = await self._process_single_news(news_item)
                 if signal:
-                    signals.append(signal)
+                    news_signals.append(signal)
                 
                 processed += 1
                 
@@ -61,12 +82,124 @@ class SignalPipeline:
                 logger.error(f"❌ Ошибка обработки новости: {str(e)[:100]}")
                 continue
         
-        self.stats['signals_generated'] += len(signals)
+        # 3. ОБЪЕДИНЕНИЕ сигналов из двух источников
+        all_signals = news_signals + technical_signals
+        self.stats['hybrid_signals'] = len(all_signals)
         
-        logger.info(f"📊 Итоги: {len(signals)} сигналов из {len(news_list)} новостей")
-        logger.info(f"   Эффективность: {(len(signals)/max(1, len(news_list))*100):.1f}%")
+        # 4. ВЕРИФИКАЦИЯ и подготовка через RiskManager
+        verified_signals = []
+        current_prices = {}
         
-        return signals
+        # Собираем все тикеры для запроса цен
+        all_tickers = list(set(signal.get('ticker') for signal in all_signals if signal.get('ticker')))
+        
+        if all_tickers:
+            logger.info(f"💰 Получение цен для {len(all_tickers)} тикеров...")
+            current_prices = await self.finam_verifier.get_current_prices(all_tickers)
+        
+        # Обработка каждого сигнала через RiskManager
+        for signal in all_signals:
+            try:
+                ticker = signal.get('ticker')
+                if not ticker:
+                    continue
+                    
+                # Получаем цену для тикера
+                if ticker not in current_prices:
+                    # Пытаемся получить цену отдельно
+                    price = await self.finam_verifier._get_price_from_finam(ticker)
+                    if price:
+                        current_prices[ticker] = price
+                    else:
+                        logger.warning(f"⚠️ Нет цены для {ticker}, пропускаем сигнал")
+                        continue
+                
+                # Для новостных сигналов нужна верификация
+                if signal.get('ai_provider') in ['gigachat', 'enhanced']:
+                    # Создаём упрощённый анализ для верификации
+                    analysis_for_verification = {
+                        'tickers': [ticker],
+                        'sentiment': signal.get('sentiment', 'neutral'),
+                        'impact_score': signal.get('impact_score', 5),
+                        'confidence': signal.get('confidence', 0.5),
+                        'event_type': signal.get('event_type', 'ai_analyzed'),
+                        'ai_provider': signal.get('ai_provider', 'gigachat')
+                    }
+                    
+                    verification = await self.finam_verifier.verify_signal(analysis_for_verification)
+                    
+                    if not verification.get('valid'):
+                        logger.debug(f"   ❌ Finam верификация не пройдена для {ticker}")
+                        continue
+                    
+                    self.stats['verification_passed'] += 1
+                    
+                    # Подготовка сигнала через RiskManager
+                    risk_signal = self.risk_manager.prepare_signal(
+                        analysis=analysis_for_verification,
+                        verification=verification,
+                        current_prices={ticker: current_prices[ticker]}
+                    )
+                    
+                    if risk_signal:
+                        # Добавляем метаданные из оригинального сигнала
+                        risk_signal.update({
+                            'original_reason': signal.get('reason'),
+                            'pipeline_version': 'hybrid_v2',
+                            'news_hash': signal.get('news_hash') if 'news_hash' in signal else self._create_news_hash(signal),
+                            'processing_timestamp': datetime.now().isoformat(),
+                            'nlp_provider': signal.get('ai_provider', 'unknown'),
+                            'verification_source': 'finam'
+                        })
+                        verified_signals.append(risk_signal)
+                        logger.info(f"✅ Верифицирован: {risk_signal['action']} {ticker}")
+                
+                # Для технических сигналов упрощённая обработка
+                elif signal.get('ai_provider') == 'technical':
+                    # Технические сигналы уже содержат action и логику
+                    analysis_for_risk = {
+                        'tickers': [ticker],
+                        'sentiment': signal.get('sentiment', 'neutral'),
+                        'impact_score': signal.get('impact_score', 5),
+                        'confidence': signal.get('confidence', 0.5),
+                        'event_type': signal.get('event_type', 'technical'),
+                        'ai_provider': 'technical',
+                        'action': signal.get('action'),  # Важно: передаём уже определённое действие
+                        'summary': signal.get('reason', 'Технический сигнал')
+                    }
+                    
+                    # Создаём упрощённую верификацию
+                    verification = {
+                        'valid': True,
+                        'reason': 'Технический сигнал',
+                        'tickers': [ticker],
+                        'primary_ticker': ticker,
+                        'primary_price': current_prices[ticker]
+                    }
+                    
+                    risk_signal = self.risk_manager.prepare_signal(
+                        analysis=analysis_for_risk,
+                        verification=verification,
+                        current_prices={ticker: current_prices[ticker]}
+                    )
+                    
+                    if risk_signal:
+                        verified_signals.append(risk_signal)
+                        logger.info(f"📈 Тех. сигнал принят: {risk_signal['action']} {ticker}")
+                        
+            except Exception as e:
+                logger.error(f"❌ Ошибка обработки сигнала {signal.get('ticker', 'unknown')}: {str(e)[:100]}")
+                continue
+        
+        self.stats['signals_generated'] += len(verified_signals)
+        
+        logger.info(f"📊 Итоги гибридной обработки:")
+        logger.info(f"   📰 Новостных сигналов: {len(news_signals)}")
+        logger.info(f"   📈 Технических сигналов: {len(technical_signals)}")
+        logger.info(f"   ✅ Верифицировано: {len(verified_signals)}")
+        logger.info(f"   💰 Получено цен: {len(current_prices)}")
+        
+        return verified_signals
     
     async def _process_single_news(self, news_item: Dict) -> Optional[Dict]:
         """Обработка одной новости"""
@@ -89,7 +222,40 @@ class SignalPipeline:
             self.news_cache[news_hash] = (datetime.now().timestamp(), None)
             return None
         
-        # 3. GIGACHAT АНАЛИЗ
+        # 3. УСИЛЕННЫЙ АНАЛИЗ (если GigaChat не доступен)
+        enhanced_analysis = None
+        if not self.nlp_engine.enabled:
+            logger.debug(f"   🔧 EnhancedAnalyzer: {news_item.get('title', '')[:50]}")
+            enhanced_analysis = self.enhanced_analyzer.analyze_news(news_item)
+            
+            if not enhanced_analysis or not enhanced_analysis.get('tickers'):
+                logger.debug(f"   ❌ Enhanced: не найдены тикеры")
+                self.news_cache[news_hash] = (datetime.now().timestamp(), None)
+                return None
+            
+            # Создаём сигнал на основе enhanced анализа
+            signal = {
+                'news_hash': news_hash,
+                'ticker': enhanced_analysis['tickers'][0] if enhanced_analysis['tickers'] else None,
+                'tickers': enhanced_analysis['tickers'],
+                'sentiment': enhanced_analysis['sentiment'],
+                'impact_score': enhanced_analysis['impact_score'],
+                'confidence': enhanced_analysis['confidence'],
+                'event_type': enhanced_analysis['event_type'],
+                'reason': enhanced_analysis['summary'],
+                'ai_provider': 'enhanced',
+                'news_id': news_item.get('id', ''),
+                'news_title': news_item.get('title', '')[:100],
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            if signal['ticker']:
+                self.news_cache[news_hash] = (datetime.now().timestamp(), signal)
+                logger.debug(f"✅ Enhanced сигнал: {signal['ticker']} ({signal['sentiment']})")
+                return signal
+            return None
+        
+        # 4. GIGACHAT АНАЛИЗ (основной)
         self.stats['gigachat_requests'] += 1
         logger.debug(f"   📡 GigaChat: {news_item.get('title', '')[:60]}")
         
@@ -108,51 +274,34 @@ class SignalPipeline:
             self.news_cache[news_hash] = (datetime.now().timestamp(), None)
             return None
         
-        # 4. ВЕРИФИКАЦИЯ ЧЕРЕЗ FINAM
-        verification = await self.finam_verifier.verify_signal(nlp_analysis)
-        
-        if not verification['valid']:
-            logger.debug(f"   ❌ Finam: {verification.get('reason', '')}")
+        # Проверяем, есть ли тикеры
+        if not nlp_analysis.get('tickers'):
+            logger.debug(f"   ⚠️ GigaChat: нет тикеров в ответе")
+            self.news_cache[news_hash] = (datetime.now().timestamp(), None)
             return None
         
-        self.stats['verification_passed'] += 1
+        # Создаём сигнал на основе анализа GigaChat
+        signal = {
+            'news_hash': news_hash,
+            'ticker': nlp_analysis['tickers'][0] if nlp_analysis['tickers'] else None,
+            'tickers': nlp_analysis['tickers'],
+            'sentiment': nlp_analysis['sentiment'],
+            'impact_score': nlp_analysis['impact_score'],
+            'confidence': nlp_analysis['confidence'],
+            'event_type': nlp_analysis.get('event_type', 'ai_analyzed'),
+            'reason': nlp_analysis.get('summary', 'Анализ GigaChat'),
+            'ai_provider': 'gigachat',
+            'news_id': news_item.get('id', ''),
+            'news_title': nlp_analysis.get('news_title', '')[:100],
+            'timestamp': datetime.now().isoformat()
+        }
         
-        # 5. ПОЛУЧЕНИЕ ЦЕН
-        tickers = verification.get('tickers', [])
-        current_prices = {}
-        
-        for ticker in tickers:
-            price = await self.finam_verifier.get_current_prices([ticker])
-            if ticker in price:
-                current_prices[ticker] = price[ticker]
-        
-        if not current_prices:
-            logger.debug(f"   ❌ Нет цен для тикеров")
-            return None
-        
-        # 6. RISK MANAGER (подготовка сигнала)
-        signal = self.risk_manager.prepare_signal(
-            analysis=nlp_analysis,
-            verification=verification,
-            current_prices=current_prices
-        )
-        
-        if signal:
-            # Добавляем метаданные
-            signal.update({
-                'pipeline_version': 'gigachat_v1',
-                'news_hash': news_hash,
-                'processing_timestamp': datetime.now().isoformat(),
-                'nlp_provider': 'gigachat',
-                'verification_source': 'finam'
-            })
-            
-            logger.info(f"✅ СИГНАЛ: {signal['action']} {signal['ticker']} (impact={signal['impact_score']})")
-            
-            # Сохраняем в кэш
+        if signal['ticker']:
             self.news_cache[news_hash] = (datetime.now().timestamp(), signal)
+            logger.debug(f"✅ GigaChat сигнал: {signal['ticker']} (impact={signal['impact_score']})")
+            return signal
         
-        return signal
+        return None
     
     def _create_news_hash(self, news_item: Dict) -> str:
         """Создание хэша новости для кэширования"""
@@ -164,28 +313,72 @@ class SignalPipeline:
         return hashlib.md5(text.encode()).hexdigest()[:16]
     
     def get_stats(self) -> Dict:
-        """Получение статистики"""
-        total = self.stats['total_news']
+        """Получение статистики гибридного пайплайна"""
+        total_news = self.stats['total_news']
         gigachat_req = self.stats['gigachat_requests']
         gigachat_succ = self.stats['gigachat_success']
+        tech_signals = self.stats['technical_signals']
         signals = self.stats['signals_generated']
+        hybrid = self.stats['hybrid_signals']
         
-        if total > 0:
-            filter_rate = (self.stats['filtered_news'] / total) * 100
+        if total_news > 0:
+            filter_rate = (self.stats['filtered_news'] / total_news) * 100
             if gigachat_req > 0:
                 gigachat_success_rate = (gigachat_succ / gigachat_req) * 100
             else:
                 gigachat_success_rate = 0
-            signal_rate = (signals / total) * 100
+            signal_rate = (signals / total_news) * 100 if total_news > 0 else 0
+            hybrid_rate = (hybrid / max(1, total_news + self.stats['total_technical_scans'])) * 100
         else:
-            filter_rate = gigachat_success_rate = signal_rate = 0
+            filter_rate = gigachat_success_rate = signal_rate = hybrid_rate = 0
         
         return {
             **self.stats,
             'filter_rate_percent': round(filter_rate, 1),
             'gigachat_success_rate': round(gigachat_success_rate, 1),
             'signal_rate_percent': round(signal_rate, 1),
+            'hybrid_rate_percent': round(hybrid_rate, 1),
             'news_cache_size': len(self.news_cache),
+            'technical_cache_size': len(self.technical_cache),
             'current_time': datetime.now().isoformat(),
-            'processing_mode': 'gigachat_sequential'
+            'processing_mode': 'hybrid_parallel' if self.technical_strategy else 'gigachat_sequential',
+            'has_technical': bool(self.technical_strategy)
         }
+    
+    async def run_continuous_hybrid_scan(self, news_interval: int = 300, tech_interval: int = 60):
+        """Непрерывное гибридное сканирование в фоновом режиме"""
+        logger.info(f"🔄 Запуск непрерывного гибридного сканирования...")
+        logger.info(f"   Новости: каждые {news_interval} сек, Тех. анализ: каждые {tech_interval} сек")
+        
+        async def news_scan():
+            while True:
+                try:
+                    logger.debug("📰 Запуск сканирования новостей...")
+                    news = await self.nlp_engine.news_fetcher.fetch_all_news() if hasattr(self.nlp_engine, 'news_fetcher') else []
+                    if news:
+                        signals = await self.process_news_batch(news[:10])  # Ограничиваем для теста
+                        if signals:
+                            logger.info(f"📊 Новостной сканинг: {len(signals)} сигналов")
+                    await asyncio.sleep(news_interval)
+                except Exception as e:
+                    logger.error(f"❌ Ошибка новостного сканирования: {str(e)[:100]}")
+                    await asyncio.sleep(news_interval)
+        
+        async def technical_scan():
+            while True:
+                try:
+                    if self.technical_strategy:
+                        logger.debug("📈 Запуск технического сканирования...")
+                        signals = await self.technical_strategy.scan_for_signals()
+                        if signals:
+                            logger.info(f"📊 Тех. сканинг: {len(signals)} сигналов")
+                    await asyncio.sleep(tech_interval)
+                except Exception as e:
+                    logger.error(f"❌ Ошибка технического сканирования: {str(e)[:100]}")
+                    await asyncio.sleep(tech_interval)
+        
+        # Запускаем оба сканирования параллельно
+        await asyncio.gather(
+            news_scan(),
+            technical_scan()
+        )
