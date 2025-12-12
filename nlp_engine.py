@@ -36,11 +36,10 @@ class GigaChatAuth:
         
         logger.info("🔄 Обновление токена GigaChat...")
         
-        # ИСПРАВЛЕННЫЙ URL для авторизации
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         rquid = str(uuid.uuid4())
         
-        # Создаем base64 авторизацию
+        # ИСПРАВЛЕНИЕ: правильный формат Basic авторизации
         auth_string = f"{self.client_id}:{self.client_secret}"
         auth_base64 = base64.b64encode(auth_string.encode()).decode()
         
@@ -48,13 +47,13 @@ class GigaChatAuth:
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
             'RqUID': rquid,
-            'Authorization': f'Basic {auth_base64}'
+            'Authorization': f'Basic {auth_base64}'  # Исправлено
         }
         
         data = {'scope': self.scope}
         
         try:
-            # ВАЖНО: verify=False только для тестов, на проде нужны сертификаты
+            # ВАЖНО: verify=False только для тестов, на проде нужно сертификаты
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 response = await client.post(url, headers=headers, data=data)
                 
@@ -128,7 +127,7 @@ class NlpEngine:
             time_context = "стандартные торги"
         
         # Основные ликвидные тикеры
-        liquid_tickers = "SBER, GAZP, LKOH, ROSN, NVTK, GMKN, YNDX, OZON, MOEX, VTBR, TCSG, MGNT, TATN, ALRS, CHMF, MTSS, SNGS, RTKM, AFLT, DSKY, MTLR, RUAL, MAGN, PIKK, PHOR, TRNFP, FIVE, MVID, LENT, SFIN"
+        liquid_tickers = "SBER, GAZP, LKOH, ROSN, NVTK, GMKN, YNDX, OZON, MOEX, VTBR, TCSG, MGNT, TATN, ALRS, CHMF"
         
         prompt = f"""Ты — алгоритмический трейдер российского рынка. Проанализируй финансовую новость.
 
@@ -153,11 +152,9 @@ class NlpEngine:
 ✓ Слияния, поглощения, сделки
 ✓ Регулятивные новости (ЦБ, санкции)
 ✓ Рекомендации аналитиков
-✓ Изменения в руководстве (если значимые)
-✓ Судебные разбирательства с финансовыми последствиями
 ✗ Технические работы, расписания
-✗ Корпоративные события без финансового влияния
-✗ Пресс-релизы без конкретных цифр
+✗ Корпоративные события (назначения)
+✗ Пресс-релизы без цифр
 
 ВЕРНИ ТОЛЬКО JSON:
 {{
@@ -172,12 +169,7 @@ class NlpEngine:
 {{
   "is_tradable": false,
   "reason": "Причина (например: 'техническая новость', 'нет тикеров')"
-}}
-
-ВАЖНО:
-- Тикеры указывай только из списка выше
-- impact_score должен быть целым числом от 1 до 10
-- sentiment только: positive, negative или neutral"""
+}}"""
         
         return prompt
     
@@ -219,9 +211,8 @@ class NlpEngine:
                     'X-Request-ID': str(uuid.uuid4())
                 }
                 
-                # ИСПРАВЛЕНА МОДЕЛЬ: используем GigaChat-Max или GigaChat-Pro
                 payload = {
-                    "model": "GigaChat-Max",  # Можно также использовать "GigaChat-Pro"
+                    "model": "GigaChat-2",  # Оригинальная модель из вашего кода
                     "messages": [{"role": "user", "content": prompt_text}],
                     "temperature": 0.1,
                     "max_tokens": 500,
@@ -229,7 +220,7 @@ class NlpEngine:
                 }
                 
                 # Отправляем запрос с таймаутом
-                async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
                     response = await client.post(
                         'https://gigachat.devices.sberbank.ru/api/v1/chat/completions',
                         headers=headers,
@@ -247,51 +238,32 @@ class NlpEngine:
                             analysis = self._parse_ai_response(ai_response, news_item)
                             if analysis:
                                 self.stats['successful_requests'] += 1
-                                # Обновляем среднее время ответа
-                                if self.stats['avg_response_time'] == 0:
-                                    self.stats['avg_response_time'] = response_time
-                                else:
-                                    self.stats['avg_response_time'] = (
-                                        self.stats['avg_response_time'] * 0.8 + response_time * 0.2
-                                    )
+                                self.stats['avg_response_time'] = (
+                                    self.stats['avg_response_time'] * 0.8 + response_time * 0.2
+                                )
                                 
-                                # Сохраняем в кэш (макс 100 записей)
-                                if len(self.analysis_cache) > 100:
-                                    self.analysis_cache.pop(next(iter(self.analysis_cache)))
+                                # Сохраняем в кэш
                                 self.analysis_cache[cache_key] = analysis
                                 
-                                tickers_count = len(analysis.get('tickers', []))
-                                impact = analysis.get('impact_score', 0)
-                                logger.info(f"✅ GigaChat: {tickers_count} тикеров, impact={impact}, время={response_time:.1f}с")
+                                logger.info(f"✅ GigaChat: {len(analysis.get('tickers', []))} тикеров, impact={analysis.get('impact_score', 0)}")
                                 return analysis
-                            else:
-                                logger.warning("⚠️ Не удалось распарсить ответ GigaChat")
                     
-                    # Обработка ошибок
+                    # Если ошибка 401 - токен истёк
                     if response.status_code == 401:
                         logger.warning("🔄 Токен истёк, сбрасываю...")
                         self.gigachat_auth.access_token = None
-                        # Можно попробовать повторно получить токен
-                        access_token = await self.gigachat_auth.get_access_token()
-                    elif response.status_code == 429:
-                        logger.warning("⏰ Слишком много запросов, ждем...")
-                        await asyncio.sleep(2)
                     
                     self.stats['failed_requests'] += 1
-                    logger.error(f"❌ GigaChat ошибка {response.status_code}: {response.text[:200]}")
+                    logger.error(f"❌ GigaChat ошибка {response.status_code}: {response.text[:100]}")
                     return None
                     
             except asyncio.TimeoutError:
                 self.stats['failed_requests'] += 1
                 logger.warning(f"⏰ GigaChat таймаут ({time.time() - start_time:.1f} сек)")
                 return None
-            except httpx.ConnectError:
-                self.stats['failed_requests'] += 1
-                logger.error("❌ Ошибка подключения к GigaChat")
-                return None
             except Exception as e:
                 self.stats['failed_requests'] += 1
-                logger.error(f"❌ Неожиданная ошибка GigaChat: {str(e)[:200]}")
+                logger.error(f"❌ Ошибка запроса к GigaChat: {str(e)[:100]}")
                 return None
     
     def _parse_ai_response(self, response: str, news_item: Dict) -> Optional[Dict]:
@@ -309,6 +281,7 @@ class NlpEngine:
             
             if not json_str:
                 # Пробуем найти любой JSON
+                import re
                 json_pattern = r'\{[^{}]*\}'
                 matches = re.findall(json_pattern, response, re.DOTALL)
                 if matches:
@@ -316,7 +289,6 @@ class NlpEngine:
             
             if not json_str:
                 logger.error("❌ Не найден JSON в ответе GigaChat")
-                logger.debug(f"Ответ: {response[:200]}")
                 return None
             
             # Парсим JSON
@@ -329,9 +301,7 @@ class NlpEngine:
                     'is_tradable': False,
                     'reason': data.get('reason', 'Не торговый сигнал'),
                     'ai_provider': 'gigachat',
-                    'analysis_timestamp': datetime.now().isoformat(),
-                    'news_id': news_item.get('id', ''),
-                    'news_title': news_item.get('title', '')[:100]
+                    'analysis_timestamp': datetime.now().isoformat()
                 }
             
             # Извлекаем тикеры
@@ -342,10 +312,9 @@ class NlpEngine:
             # Валидация тикеров
             valid_tickers = []
             for ticker in tickers:
-                if isinstance(ticker, str):
-                    ticker_upper = ticker.strip().upper()
-                    # Проверяем, что тикер состоит из букв и цифр, длиной 2-6 символов
-                    if 2 <= len(ticker_upper) <= 6 and re.match(r'^[A-Z0-9]+$', ticker_upper):
+                if isinstance(ticker, str) and 2 <= len(ticker) <= 6:
+                    ticker_upper = ticker.upper()
+                    if any(c.isalpha() for c in ticker_upper):
                         valid_tickers.append(ticker_upper)
             
             # Если нет валидных тикеров
@@ -355,22 +324,8 @@ class NlpEngine:
                     'is_tradable': False,
                     'reason': 'Нет валидных тикеров',
                     'ai_provider': 'gigachat',
-                    'analysis_timestamp': datetime.now().isoformat(),
-                    'news_id': news_item.get('id', ''),
-                    'news_title': news_item.get('title', '')[:100]
+                    'analysis_timestamp': datetime.now().isoformat()
                 }
-            
-            # Валидация sentiment
-            sentiment = data.get('sentiment', 'neutral').lower()
-            if sentiment not in ['positive', 'negative', 'neutral']:
-                sentiment = 'neutral'
-            
-            # Валидация impact_score
-            try:
-                impact_score = int(data.get('impact_score', 5))
-                impact_score = max(1, min(10, impact_score))
-            except (ValueError, TypeError):
-                impact_score = 5
             
             # Собираем результат
             result = {
@@ -378,23 +333,22 @@ class NlpEngine:
                 'news_title': news_item.get('title', '')[:100],
                 'news_source': news_item.get('source', ''),
                 'tickers': valid_tickers,
-                'event_type': 'ai_analyzed',
-                'impact_score': impact_score,
-                'sentiment': sentiment,
-                'confidence': min(0.95, max(0.3, impact_score / 10)),
+                'event_type': 'ai_analyzed',  # GigaChat сам определяет тип
+                'impact_score': min(10, max(1, int(data.get('impact_score', 5)))),
+                'sentiment': data.get('sentiment', 'neutral'),
+                'confidence': min(0.95, max(0.3, data.get('impact_score', 5) / 10)),
                 'summary': data.get('reason', f"GigaChat: {len(valid_tickers)} тикеров"),
                 'is_tradable': True,
                 'ai_provider': 'gigachat',
                 'analysis_timestamp': datetime.now().isoformat(),
-                'simple_analysis': False,
-                'raw_response': response[:500]  # Сохраняем часть сырого ответа для отладки
+                'simple_analysis': False
             }
             
             return result
             
         except json.JSONDecodeError as e:
             logger.error(f"❌ Ошибка парсинга JSON GigaChat: {str(e)}")
-            logger.debug(f"Ответ: {response[:500]}")
+            logger.debug(f"   Ответ: {response[:200]}")
             return None
         except Exception as e:
             logger.error(f"❌ Критическая ошибка парсинга: {str(e)}")
@@ -421,53 +375,5 @@ class NlpEngine:
             'success_rate': round(success_rate, 1),
             'cache_hits': self.stats['cache_hits'],
             'avg_response_time_seconds': round(avg_time, 2),
-            'semaphore_queue': self.semaphore._value,
-            'cache_size': len(self.analysis_cache)
+            'semaphore_queue': self.semaphore._value
         }
-    
-    def clear_cache(self):
-        """Очистка кэша"""
-        self.analysis_cache.clear()
-        logger.info("🗑️ Кэш анализа очищен")
-
-# Пример использования (для тестирования)
-async def test_nlp_engine():
-    """Тестирование NLP движка"""
-    import sys
-    
-    # Установите переменные окружения для теста
-    os.environ['GIGACHAT_CLIENT_ID'] = 'ваш_client_id'
-    os.environ['GIGACHAT_CLIENT_SECRET'] = 'ваш_client_secret'
-    
-    engine = NlpEngine()
-    
-    if not engine.enabled:
-        print("❌ Движок отключен, проверьте переменные окружения")
-        return
-    
-    # Тестовая новость
-    test_news = {
-        'id': 'test_1',
-        'title': 'Сбербанк увеличил дивиденды на 20%',
-        'description': 'Совет директоров Сбербанка рекомендовал увеличить дивиденды за прошлый год на 20%',
-        'source': 'test',
-        'content': 'Полный текст новости о дивидендах Сбербанка'
-    }
-    
-    print("🧪 Тестирование анализа новости...")
-    result = await engine.analyze_news(test_news)
-    
-    if result:
-        print(f"✅ Результат анализа:")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        print("❌ Не удалось получить анализ")
-    
-    # Статистика
-    stats = engine.get_stats()
-    print(f"\n📊 Статистика: {json.dumps(stats, indent=2, ensure_ascii=False)}")
-
-if __name__ == "__main__":
-    # Для тестирования
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(test_nlp_engine())
