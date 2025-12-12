@@ -1,4 +1,4 @@
-# virtual_portfolio.py - ПОЛНЫЙ ФАЙЛ С ОБНОВЛЕНИЯМИ
+# virtual_portfolio.py - ПОЛНЫЙ ФАЙЛ С МЕТОДОМ get_portfolio_analytics
 import datetime
 import logging
 from typing import Dict, List
@@ -280,31 +280,43 @@ class VirtualPortfolioPro:
         return trade_result
 
     def get_portfolio_analytics(self, current_prices: Dict[str, float]) -> Dict:
-    """Расчёт детальной аналитики портфеля"""
-    total_value = self.cash
-    total_pnl = 0.0
-    positions_detail = []
-    for ticker, pos in self.positions.items():
-        if ticker in current_prices:
-            current_price = current_prices[ticker]
-            market_value = current_price * pos['size']
-            total_value += market_value
-            pnl = (current_price - pos['avg_price']) * pos['size']
-            total_pnl += pnl
-            positions_detail.append({
-                'ticker': ticker,
-                'size': pos['size'],
-                'avg_price': pos['avg_price'],
-                'current_price': current_price,
-                'market_value': market_value,
-                'pnl': pnl,
-                'pnl_percent': (current_price / pos['avg_price'] - 1) * 100
-            })
-    return {
-        'total_value': total_value,
-        'total_pnl': total_pnl,
-        'positions_detail': positions_detail
-    }
+        """Расчёт детальной аналитики портфеля"""
+        total_value = self.cash
+        total_pnl = 0.0
+        positions_detail = []
+        
+        for ticker, pos in self.positions.items():
+            if ticker in current_prices:
+                current_price = current_prices[ticker]
+                market_value = current_price * pos['size']
+                total_value += market_value
+                pnl = (current_price - pos['avg_price']) * pos['size']
+                total_pnl += pnl
+                
+                positions_detail.append({
+                    'ticker': ticker,
+                    'size': pos['size'],
+                    'avg_price': pos['avg_price'],
+                    'current_price': current_price,
+                    'market_value': market_value,
+                    'pnl': pnl,
+                    'pnl_percent': (current_price / pos['avg_price'] - 1) * 100 if pos['avg_price'] > 0 else 0,
+                    'entry_time': pos.get('entry_time'),
+                    'ai_provider': pos.get('ai_provider', 'unknown')
+                })
+        
+        # Рассчитываем доходность
+        initial_total = sum(pos['avg_price'] * pos['size'] for pos in self.positions.values()) + self.cash
+        total_return_pct = ((total_value - initial_total) / initial_total * 100) if initial_total > 0 else 0
+        
+        return {
+            'total_value': total_value,
+            'total_pnl': total_pnl,
+            'total_return_pct': total_return_pct,
+            'positions_detail': positions_detail,
+            'cash': self.cash,
+            'positions_count': len(self.positions)
+        }
     
     def get_total_value(self, current_prices: Dict) -> float:
         """Расчет общей стоимости портфеля"""
