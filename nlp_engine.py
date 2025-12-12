@@ -292,9 +292,14 @@ class NlpEngine:
                 logger.error(f"❌ Неожиданная ошибка GigaChat: {str(e)[:200]}")
                 return None
     
-    def _parse_ai_response(self, response: str, news_item: Dict) -> Optional[Dict]:
+        def _parse_ai_response(self, response: str, news_item: Dict) -> Optional[Dict]:
         """Парсинг ответа GigaChat"""
         try:
+            # ЛОГИРОВАНИЕ ДЛЯ ДИАГНОСТИКИ
+            news_title_short = news_item.get('title', '')[:50]
+            logger.info(f"🧠 GigaChat анализ новости: '{news_title_short}...'")
+            logger.info(f"📄 Ответ GigaChat (первые 300 символов): {response[:300]}...")
+            
             response = response.strip()
             
             # Ищем JSON в ответе
@@ -314,40 +319,65 @@ class NlpEngine:
             
             if not json_str:
                 logger.error("❌ Не найден JSON в ответе GigaChat")
-                logger.debug(f"Ответ: {response[:300]}")
+                logger.debug(f"   Полный ответ: {response}")
                 return None
+            
+            logger.info(f"📋 Найден JSON: {json_str}")
             
             # Парсим JSON
             data = json.loads(json_str)
             
+            # ДИАГНОСТИКА ПАРСИНГА
+            tickers = data.get('tickers', [])
+            is_tradable = data.get('is_tradable', False)
+            impact_score = data.get('impact_score', 0)
+            sentiment = data.get('sentiment', 'neutral')
+            reason = data.get('reason', 'нет причины')
+            
+            logger.info(f"🔍 Распарсено: is_tradable={is_tradable}, tickers={tickers}, impact={impact_score}, sentiment={sentiment}, reason='{reason}'")
+            
+            # КРИТИЧЕСКАЯ ПРОВЕРКА: если is_tradable=true но нет тикеров
+            if is_tradable and (not tickers or len(tickers) == 0):
+                logger.warning(f"🚨 ОШИБКА ЛОГИКИ GigaChat: is_tradable=true без тикеров! Исправляю на false")
+                is_tradable = False
+                data['is_tradable'] = False
+                if 'reason' not in data or not data['reason']:
+                    data['reason'] = 'Нет тикеров в ответе GigaChat'
+            
             # Если не торгуемый сигнал
-            if not data.get('is_tradable', True):
+            if not is_tradable:
+                reason = data.get('reason', 'Не торговый сигнал')
+                logger.info(f"📭 GigaChat: НЕ торговый сигнал. Причина: {reason}")
                 return {
                     'tickers': [],
                     'is_tradable': False,
-                    'reason': data.get('reason', 'Не торговый сигнал'),
+                    'reason': reason,
                     'ai_provider': 'gigachat',
                     'analysis_timestamp': datetime.now().isoformat(),
                     'news_id': news_item.get('id', ''),
-                    'news_title': news_item.get('title', '')[:100]
+                    'news_title': news_item.get('title', '')[:100],
+                    'debug_info': {
+                        'parsed_tickers': tickers,
+                        'parsed_impact': impact_score,
+                        'parsed_sentiment': sentiment
+                    }
                 }
             
             # Извлекаем тикеры
-            tickers = data.get('tickers', [])
             if not isinstance(tickers, list):
                 tickers = []
             
             # Валидация тикеров
             valid_tickers = []
             for ticker in tickers:
-                if isinstance(ticker, str):
-                    ticker_upper = ticker.strip().upper()
-                    # Проверяем формат тикера
-                    if 2 <= len(ticker_upper) <= 6 and re.match(r'^[A-Z0-9]+$', ticker_upper):
+                if isinstance(ticker, str) and 2 <= len(ticker) <= 6:
+                    ticker_upper = ticker.upper()
+                    if any(c.isalpha() for c in ticker_upper):
                         valid_tickers.append(ticker_upper)
             
-            # Если нет валидных тикеров
+            # Если после валидации нет тикеров
             if not valid_tickers:
+                logger.warning(f"⚠️ Нет валидных тикеров после валидации. Исходные: {tickers}")
                 return {
                     'tickers': [],
                     'is_tradable': False,
@@ -359,13 +389,13 @@ class NlpEngine:
                 }
             
             # Валидация sentiment
-            sentiment = data.get('sentiment', 'neutral').lower()
+            sentiment = sentiment.lower()
             if sentiment not in ['positive', 'negative', 'neutral']:
                 sentiment = 'neutral'
             
             # Валидация impact_score
             try:
-                impact_score = int(data.get('impact_score', 5))
+                impact_score = int(impact_score)
                 impact_score = max(1, min(10, impact_score))
             except (ValueError, TypeError):
                 impact_score = 5
@@ -385,17 +415,26 @@ class NlpEngine:
                 'ai_provider': 'gigachat',
                 'analysis_timestamp': datetime.now().isoformat(),
                 'simple_analysis': False,
-                'raw_response_preview': response[:100]  # Для отладки
+                'debug_info': {
+                    'raw_tickers': tickers,
+                    'raw_impact': data.get('impact_score'),
+                    'raw_sentiment': data.get('sentiment'),
+                    'raw_reason': data.get('reason')
+                }
             }
             
+            logger.info(f"✅ GigaChat УСПЕШНЫЙ АНАЛИЗ: {len(valid_tickers)} тикеров: {valid_tickers}, impact={impact_score}, sentiment={sentiment}")
             return result
             
         except json.JSONDecodeError as e:
             logger.error(f"❌ Ошибка парсинга JSON GigaChat: {str(e)}")
-            logger.debug(f"Ответ: {response[:500]}")
+            logger.debug(f"   JSON строка: {json_str[:200] if 'json_str' in locals() else 'не определена'}")
+            logger.debug(f"   Ответ: {response[:200]}")
             return None
         except Exception as e:
             logger.error(f"❌ Критическая ошибка парсинга: {str(e)}")
+            import traceback
+            logger.debug(f"   Трейсбэк: {traceback.format_exc()}")
             return None
     
     def get_stats(self) -> Dict:
