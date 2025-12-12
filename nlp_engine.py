@@ -39,7 +39,7 @@ class GigaChatAuth:
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         rquid = str(uuid.uuid4())
         
-        # ИСПРАВЛЕНИЕ: правильный формат Basic авторизации
+        # Правильный формат авторизации для GigaChat
         auth_string = f"{self.client_id}:{self.client_secret}"
         auth_base64 = base64.b64encode(auth_string.encode()).decode()
         
@@ -47,7 +47,7 @@ class GigaChatAuth:
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
             'RqUID': rquid,
-            'Authorization': f'Basic {auth_base64}'  # Исправлено
+            'Authorization': f'Basic {auth_base64}'
         }
         
         data = {'scope': self.scope}
@@ -212,7 +212,7 @@ class NlpEngine:
                 }
                 
                 payload = {
-                    "model": "GigaChat-2",  # Оригинальная модель из вашего кода
+                    "model": "GigaChat-2",
                     "messages": [{"role": "user", "content": prompt_text}],
                     "temperature": 0.1,
                     "max_tokens": 500,
