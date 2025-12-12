@@ -1,4 +1,4 @@
-# app.py - ПОЛНЫЙ ОБНОВЛЁННЫЙ ФАЙЛ С ВИЗУАЛЬНЫМИ И ЛОГИЧЕСКИМИ УЛУЧШЕНИЯМИ
+# app.py - ИСПРАВЛЕННЫЙ (calculate_portfolio_stats работает с get_stats)
 from flask import Flask, jsonify, render_template_string, request
 import datetime
 import time
@@ -470,48 +470,61 @@ HTML_TEMPLATE = '''
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
 def calculate_portfolio_stats():
-    """Расчёт статистики портфеля для отображения в интерфейсе"""
-    # Получаем текущие цены для всех позиций
+    """Расчёт статистики портфеля для отображения в интерфейсе (ИСПРАВЛЕННЫЙ)"""
+    # Получаем базовую статистику из virtual_portfolio
+    portfolio_stats_raw = virtual_portfolio.get_stats()
+    
+    # Для расчёта P&L по позициям нужны текущие цены
+    # Упрощаем: используем средние цены входа для демонстрации
     current_prices = {}
-    for ticker in virtual_portfolio.positions.keys():
-        # В реальном коде здесь нужно асинхронно получать цены
-        # Для упрощения используем последние известные цены
-        current_prices[ticker] = virtual_portfolio.positions[ticker].get('avg_price', 0)
-    
-    # Общая стоимость портфеля
-    total_value = virtual_portfolio.get_total_value(current_prices)
-    
-    # Прибыль и доходность
-    total_profit = total_virtual_profit
-    total_return_pct = total_virtual_return
-    
-    # Детализация позиций
     positions_detail = []
+    
     for ticker, pos in virtual_portfolio.positions.items():
-        current_price = current_prices.get(ticker, pos['avg_price'])
+        # Используем среднюю цену входа как текущую (для демо)
+        current_price = pos['avg_price']
+        current_prices[ticker] = current_price
+        
         current_value = current_price * pos['size']
-        pnl = (current_price - pos['avg_price']) * pos['size']
+        pnl = (current_price - pos['avg_price']) * pos['size']  # Будет 0 для демо
+        
         positions_detail.append({
             'ticker': ticker,
-            'action': 'BUY',  # Пока предполагаем только лонги
+            'action': 'BUY',  # Предполагаем лонги
             'size': pos['size'],
             'avg_price': pos['avg_price'],
             'current_price': current_price,
             'current_value': current_value,
             'current_pnl': pnl,
-            'portfolio_share': current_value / total_value if total_value > 0 else 0
+            'portfolio_share': current_value / portfolio_stats_raw['current_value'] if portfolio_stats_raw['current_value'] > 0 else 0
         })
     
     # Данные для графика (упрощённо)
     chart_labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
-    chart_values = [98000, 99000, 101000, 100500, 100800, 101200, total_value/1000*1000]
+    
+    # Создаём реалистичные данные для графика
+    base_value = 100000
+    if total_virtual_profit != 0:
+        current_value = base_value + total_virtual_profit
+    else:
+        current_value = portfolio_stats_raw['current_value']
+    
+    # Генерируем значения для графика
+    chart_values = [
+        base_value * 0.98,
+        base_value * 0.99,
+        base_value * 1.01,
+        base_value * 1.005,
+        base_value * 1.008,
+        base_value * 1.012,
+        current_value
+    ]
     
     return {
-        'total_value': total_value,
-        'total_profit': total_profit,
-        'total_return_pct': total_return_pct,
+        'total_value': portfolio_stats_raw['current_value'],
+        'total_profit': total_virtual_profit,
+        'total_return_pct': total_virtual_return,
         'daily_profit': system_stats.get('session_profit', 0),
-        'total_trades': len(trade_history),
+        'total_trades': portfolio_stats_raw['total_trades'],
         'positions': positions_detail,
         'chart_labels': chart_labels,
         'chart_values': chart_values
@@ -576,7 +589,7 @@ async def trading_session_async(force_mode=False):
         # 5. Получение текущих цен
         logger.info("💰 Получение текущих цен...")
         current_prices = {}
-        tickers_to_check = list(set(signal['ticker'] for signal in all_signals))
+        tickers_to_check = list(set(signal['ticker'] for signal in all_signals if 'ticker' in signal))
         
         for ticker in tickers_to_check:
             try:
@@ -600,7 +613,10 @@ async def trading_session_async(force_mode=False):
         
         for signal in all_trades:
             try:
-                ticker = signal['ticker']
+                ticker = signal.get('ticker')
+                if not ticker:
+                    continue
+                    
                 if ticker in current_prices:
                     trade_result = virtual_portfolio.execute_trade(signal, current_prices[ticker])
                     if trade_result:
@@ -696,7 +712,7 @@ def home():
     request_count += 1
     
     # Расчёт статистики портфеля
-    portfolio_stats = calculate_portfolio_stats()
+    portfolio_stats = calculate_portfolio
     
     # Рендеринг нового HTML
     return render_template_string(
