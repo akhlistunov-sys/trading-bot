@@ -41,10 +41,18 @@ class SignalPipeline:
         logger.info("   Этапы: PreFilter → GigaChat/Technical → Finam → RiskManager")
         logger.info(f"   Тех. анализ: {'✅' if technical_strategy else '❌'}")
     
-    async def process_news_batch(self, news_list: List[Dict]) -> List[Dict]:
-        """Пакетная обработка новостей + параллельный технический анализ"""
-        
-        self.stats['total_news'] += len(news_list)
+    async def process_news_batch(self, news_items):
+        fresh_news = []
+        for news in news_items:
+            news_id = news.get('id') or hash(news.get('title', ''))
+            
+            # Пропускаем если уже обрабатывали в последние 4 часа
+            if news_id in self.processed_news_cache:
+                if time.time() - self.processed_news_cache[news_id] < 14400:  # 4 часа
+                    continue
+            
+            fresh_news.append(news)
+            self.processed_news_cache[news_id] = time.time()
         
         logger.info(f"📊 Гибридная обработка {len(news_list)} новостей...")
         
