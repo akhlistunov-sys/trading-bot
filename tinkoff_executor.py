@@ -48,15 +48,15 @@ class TinkoffExecutor:
         # Приоритет источников цен
         self.price_sources = ['finam', 'moex', 'fallback']
         
-        # Фолбэк цены
+        # АКТУАЛИЗИРОВАННЫЕ FALLBACK ЦЕНЫ (декабрь 2024)
         self.fallback_prices = {
-            'SBER': 285.40, 'GAZP': 168.20, 'LKOH': 7520.0, 'ROSN': 592.80,
-            'NVTK': 1725.0, 'GMKN': 16250.0, 'PLZL': 12500.0, 'POLY': 1120.0,
-            'TATN': 580.0, 'ALRS': 76.80, 'CHMF': 1380.0, 'NLMK': 180.50,
-            'MAGN': 55.30, 'SNGS': 38.20, 'VTBR': 0.026, 'TCSG': 3350.0,
-            'MTSS': 285.50, 'AFKS': 28.40, 'FEES': 0.185, 'MGNT': 5620.0,
-            'FIVE': 2740.0, 'YNDX': 2950.0, 'OZON': 2450.0, 'MOEX': 174.74,
-            'RTKM': 65.30, 'PHOR': 6620.0, 'TRNFP': 155000.0, 'BANE': 210.0
+            'SBER': 150.40, 'GAZP': 158.20, 'LKOH': 6200.0, 'ROSN': 420.80,
+            'NVTK': 1250.0, 'GMKN': 14500.0, 'PLZL': 8500.0, 'POLY': 850.0,
+            'TATN': 420.0, 'ALRS': 65.80, 'CHMF': 1250.0, 'NLMK': 145.50,
+            'MAGN': 45.30, 'SNGS': 28.20, 'VTBR': 0.023, 'TCSG': 2500.0,
+            'MTSS': 225.50, 'AFKS': 22.40, 'FEES': 0.165, 'MGNT': 4800.0,
+            'FIVE': 2200.0, 'YNDX': 2200.0, 'OZON': 1800.0, 'MOEX': 150.74,
+            'RTKM': 55.30, 'PHOR': 5800.0, 'TRNFP': 135000.0, 'BANE': 180.0
         }
         
         logger.info("🏦 TinkoffExecutor инициализирован")
