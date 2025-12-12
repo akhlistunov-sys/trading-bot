@@ -1,4 +1,4 @@
-# app.py - ИСПРАВЛЕННЫЙ (calculate_portfolio_stats работает с get_stats)
+# app.py - ПОЛНЫЙ ИСПРАВЛЕННЫЙ КОД
 from flask import Flask, jsonify, render_template_string, request
 import datetime
 import time
@@ -712,7 +712,7 @@ def home():
     request_count += 1
     
     # Расчёт статистики портфеля
-    portfolio_stats = calculate_portfolio
+    portfolio_stats = calculate_portfolio_stats()  # ← ИСПРАВЛЕНИЕ ЗДЕСЬ!
     
     # Рендеринг нового HTML
     return render_template_string(
@@ -722,7 +722,7 @@ def home():
         session_count=session_count,
         last_trading_time=last_trading_time,
         request_count=request_count,
-        portfolio_stats=portfolio_stats,
+        portfolio_stats=portfolio_stats,  # ← передаём результат функции
         total_virtual_return=total_virtual_return,
         total_virtual_profit=total_virtual_profit,
         last_news_count=last_news_count,
