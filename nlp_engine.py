@@ -295,10 +295,18 @@ class NlpEngine:
         def _parse_ai_response(self, response: str, news_item: Dict) -> Optional[Dict]:
         """Парсинг ответа GigaChat"""
         try:
-            # ЛОГИРОВАНИЕ ДЛЯ ДИАГНОСТИКИ
-            news_title_short = news_item.get('title', '')[:50]
-            logger.info(f"🧠 GigaChat анализ новости: '{news_title_short}...'")
-            logger.info(f"📄 Ответ GigaChat (первые 300 символов): {response[:300]}...")
+            import traceback
+            
+            # Логируем входные данные
+            news_title = news_item.get('title', 'Без заголовка')
+            logger.info(f"🔍 _parse_ai_response вызван для новости: '{news_title[:80]}...'")
+            logger.info(f"📄 Длина ответа GigaChat: {len(response)} символов")
+            
+            # Логируем первые 500 символов ответа
+            if len(response) > 500:
+                logger.info(f"📄 Ответ (первые 500 символов): {response[:500]}...")
+            else:
+                logger.info(f"📄 Полный ответ: {response}")
             
             response = response.strip()
             
