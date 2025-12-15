@@ -8,6 +8,5 @@ aiohttp
 protobuf
 certifi
 pandas
-google-generativeai
-tinkoff-invest-python
 numpy
+google-generativeai
