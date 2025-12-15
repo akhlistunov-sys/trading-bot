@@ -1,24 +1,28 @@
-# technical_strategy.py - МОДУЛЬ ТЕХНИЧЕСКОГО АНАЛИЗА
+# technical_strategy.py - ОБНОВЛЕННЫЙ (MOMENTUM STRATEGY)
 import logging
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 import asyncio
 
 logger = logging.getLogger(__name__)
 
 class TechnicalStrategy:
-    """Технический анализ на основе RSI и Bollinger Bands (лонг-стратегия)"""
+    """Технический анализ: Momentum & Trend Following"""
     
     def __init__(self, tinkoff_executor, lookback_period: int = 50):
         self.executor = tinkoff_executor
         self.lookback_period = lookback_period
-        # Кэш для хранения цен по тикерам: {'SBER': [(timestamp, price), ...]}
         self.price_cache = {}
-        # Список отслеживаемых тикеров (можно расширить)
-        self.tracked_tickers = ['SBER', 'GAZP', 'LKOH', 'ROSN', 'GMKN', 'MOEX']
-        logger.info(f"📊 TechnicalStrategy инициализирован для {len(self.tracked_tickers)} тикеров")
+        
+        # РАСШИРЕННЫЙ СПИСОК ТИКЕРОВ (ТОП-25 MOEX)
+        self.tracked_tickers = [
+            'SBER', 'GAZP', 'LKOH', 'ROSN', 'GMKN', 'NVTK', 'YNDX', 'OZON', 
+            'MGNT', 'FIVE', 'TATN', 'SNGS', 'VTBR', 'TCSG', 'ALRS', 'CHMF', 
+            'NLMK', 'MAGN', 'PLZL', 'POLY', 'MOEX', 'AFKS', 'MTSS', 'PHOR', 'TRNFP'
+        ]
+        logger.info(f"📊 TechnicalStrategy инициализирован для {len(self.tracked_tickers)} тикеров (Momentum)")
 
     async def update_prices(self, ticker: str) -> None:
         """Обновляет кэш цен для тикера"""
@@ -28,23 +32,18 @@ class TechnicalStrategy:
                 if ticker not in self.price_cache:
                     self.price_cache[ticker] = []
                 self.price_cache[ticker].append((datetime.now(), price))
-                # Ограничиваем размер истории
                 if len(self.price_cache[ticker]) > self.lookback_period * 2:
                     self.price_cache[ticker] = self.price_cache[ticker][-self.lookback_period:]
-                logger.debug(f"📈 Обновлена цена {ticker}: {price:.2f}")
         except Exception as e:
             logger.debug(f"⚠️ Ошибка обновления цены {ticker}: {str(e)[:50]}")
 
     def calculate_rsi(self, prices: List[float], period: int = 14) -> Optional[float]:
-        """Расчёт RSI (Relative Strength Index)"""
-        if len(prices) < period + 1:
-            return None
+        if len(prices) < period + 1: return None
         deltas = np.diff(prices)
         seed = deltas[:period]
         up = seed[seed >= 0].sum() / period
         down = -seed[seed < 0].sum() / period
-        if down == 0:
-            return 100.0
+        if down == 0: return 100.0
         rs = up / down
         rsi = 100.0 - (100.0 / (1.0 + rs))
         
@@ -58,91 +57,74 @@ class TechnicalStrategy:
                 down_val = -delta
             up = (up * (period - 1) + up_val) / period
             down = (down * (period - 1) + down_val) / period
-            if down == 0:
-                rsi = 100.0
+            if down == 0: rsi = 100.0
             else:
                 rs = up / down
                 rsi = 100.0 - (100.0 / (1.0 + rs))
         return rsi
 
     def calculate_bollinger_bands(self, prices: List[float], period: int = 20, std_dev: float = 2.0):
-        """Расчёт Bollinger Bands"""
-        if len(prices) < period:
-            return None, None, None
+        if len(prices) < period: return None, None, None
         sma = np.mean(prices[-period:])
         std = np.std(prices[-period:])
-        upper_band = sma + (std * std_dev)
-        lower_band = sma - (std * std_dev)
-        return upper_band, sma, lower_band
+        return sma + (std * std_dev), sma, sma - (std * std_dev)
 
     async def scan_for_signals(self) -> List[Dict]:
-        """Сканирование всех тикеров на наличие сигналов"""
+        """Сканирование на импульс (Momentum)"""
         signals = []
-        # 1. Обновляем цены для всех тикеров
         update_tasks = [self.update_prices(ticker) for ticker in self.tracked_tickers]
         await asyncio.gather(*update_tasks, return_exceptions=True)
         
-        # 2. Анализируем каждый тикер
         for ticker in self.tracked_tickers:
             if ticker not in self.price_cache or len(self.price_cache[ticker]) < 30:
                 continue
             prices = [price for _, price in self.price_cache[ticker]]
-            current_price = prices[-1] if prices else 0
+            current_price = prices[-1]
             
-            # Рассчитываем индикаторы
             rsi = self.calculate_rsi(prices)
-            upper_band, middle_band, lower_band = self.calculate_bollinger_bands(prices)
+            upper, middle, lower = self.calculate_bollinger_bands(prices)
             
-            if rsi is None or lower_band is None:
-                continue
+            if rsi is None or middle is None: continue
             
-            # СТРАТЕГИЯ: Покупаем при RSI < 30 (перепроданность) И цена у нижней полосы Bollinger
-            if rsi < 30.0 and current_price <= lower_band * 1.02:
+            # СТРАТЕГИЯ MOMENTUM (ИМПУЛЬС)
+            # 1. RSI > 50 (Тренд вверх), но < 75 (Еще не перекуплен)
+            # 2. Цена ВЫШЕ средней линии Bollinger (Подтверждение тренда)
+            
+            if 50.0 <= rsi <= 75.0 and current_price > middle:
+                # Рассчитываем силу сигнала
+                strength = 5 + int((rsi - 50) / 5) # 5..9
+                
                 signal = {
                     'action': 'BUY',
                     'ticker': ticker,
-                    'reason': f'Тех. сигнал: RSI={rsi:.1f}, цена у нижней полосы BB',
-                    'confidence': min(0.9, (30 - rsi) / 30 * 0.5 + 0.5),
-                    'impact_score': 6,
-                    'event_type': 'technical_rsi_oversold',
+                    'reason': f'Momentum: RSI={rsi:.1f} (Рост), Цена > SMA',
+                    'confidence': min(0.85, 0.5 + (rsi-50)/100),
+                    'impact_score': strength,
+                    'event_type': 'technical_momentum_up',
                     'sentiment': 'positive',
                     'current_price': current_price,
-                    'strategy': 'RSI_Bollinger_Long',
+                    'strategy': 'Momentum_Trend',
                     'ai_provider': 'technical',
                     'timestamp': datetime.now().isoformat()
                 }
                 signals.append(signal)
-                logger.info(f"📈 Тех. сигнал на {ticker}: BUY (RSI={rsi:.1f})")
+                logger.info(f"🚀 Импульс на {ticker}: BUY (RSI={rsi:.1f})")
             
-            # Дополнительно: Сигнал на продажу для фиксации прибыли (если позиция есть)
-            elif rsi > 70.0 and current_price >= upper_band * 0.98:
+            # ВЫХОД ИЗ ПОЗИЦИИ (Если RSI падает ниже 45 или пробивает среднюю вниз)
+            elif rsi < 45.0 and current_price < middle:
                 signal = {
                     'action': 'SELL',
                     'ticker': ticker,
-                    'reason': f'Тех. сигнал: RSI={rsi:.1f}, цена у верхней полосы BB',
-                    'confidence': min(0.9, (rsi - 70) / 30 * 0.5 + 0.5),
-                    'impact_score': 6,
-                    'event_type': 'technical_rsi_overbought',
-                    'sentiment': 'neutral',
+                    'reason': f'Тренд сломлен: RSI={rsi:.1f}, Цена < SMA',
+                    'confidence': 0.8,
+                    'impact_score': 7,
+                    'event_type': 'technical_trend_break',
+                    'sentiment': 'negative',
                     'current_price': current_price,
-                    'strategy': 'RSI_Bollinger_Exit',
+                    'strategy': 'Momentum_Exit',
                     'ai_provider': 'technical',
                     'timestamp': datetime.now().isoformat()
                 }
                 signals.append(signal)
-                logger.info(f"📉 Тех. сигнал на {ticker}: SELL для выхода (RSI={rsi:.1f})")
         
         return signals
-
-    async def run_continuous_scan(self, interval_seconds: int = 60):
-        """Непрерывное сканирование в фоновом режиме"""
-        logger.info(f"🔄 Запуск непрерывного сканирования каждые {interval_seconds} сек.")
-        while True:
-            try:
-                signals = await self.scan_for_signals()
-                if signals:
-                    logger.info(f"📊 Найдено {len(signals)} тех. сигналов")
-                await asyncio.sleep(interval_seconds)
-            except Exception as e:
-                logger.error(f"❌ Ошибка в непрерывном сканировании: {str(e)[:100]}")
-                await asyncio.sleep(interval_seconds)
