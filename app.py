@@ -223,26 +223,36 @@ async def trading_session_async():
         all_signals = signals + tech_signals
         
         if all_signals:
-            tickers = [s['ticker'] for s in all_signals]
             prices = {}
-            for t in tickers:
+            # Получаем реальные цены через Тинькофф
+            tickers_to_check = list(set([s['ticker'] for s in all_signals]))
+            for t in tickers_to_check:
                 p = await tinkoff_executor.get_current_price(t)
                 if p: prices[t] = p
             
+            # Обновляем портфель (в будущем сюда можно добавить синхронизацию с реальным счетом)
+            risk_manager.update_positions(virtual_portfolio.positions)
+            
+            # Проверка выходов
             exits = virtual_portfolio.check_exit_conditions(prices)
             for exit_sig in exits:
+                # ВАЖНО: Если режим REAL, тут надо вызвать tinkoff_executor.execute_order
+                # Пока мы торгуем в "зеркальном" режиме: 
+                # Тинькофф дает данные -> Виртуальный портфель пишет историю
                 virtual_portfolio.execute_trade(exit_sig, prices.get(exit_sig['ticker'], 0))
             
+            # Входы
             for sig in all_signals:
                 t = sig['ticker']
                 if t in prices:
-                    virtual_portfolio.execute_trade(sig, prices[t])
+                    # Попытка исполнения в Песочнице (если включен токен)
+                    if tinkoff_executor.token:
+                        await tinkoff_executor.execute_order(t, sig['action'], int(sig.get('position_size', 1)))
                     
-    except Exception as e:
-        logger.error(f"Session Error: {e}")
-    finally:
-        bot_status = "ONLINE"
-        logger.info("🏁 Сессия завершена")
+                    # Запись в наш локальный журнал
+                    res = virtual_portfolio.execute_trade(sig, prices[t])
+                    if res.get('status') == 'EXECUTED':
+                        logger.info(f"✅ TRADE: {res['action']} {t}")
 
 def run_trading_session():
     threading.Thread(target=lambda: asyncio.run(trading_session_async())).start()
