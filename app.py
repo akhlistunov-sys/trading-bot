@@ -1,4 +1,4 @@
-# app.py - НЕЙРО-ИНТЕРФЕЙС (NeuroTrader Style)
+# app.py - ИСПРАВЛЕННЫЙ (FIXED 500 ERROR)
 from flask import Flask, jsonify, render_template_string
 import datetime
 import time
@@ -72,7 +72,7 @@ except Exception as e:
     logger.error(f"❌ Критическая ошибка старта: {e}")
     raise
 
-# --- НОВЫЙ ДИЗАЙН (NEURO TRADER STYLE) ---
+# --- НОВЫЙ ДИЗАЙН (ИСПРАВЛЕННЫЕ ПЕРЕМЕННЫЕ) ---
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -332,21 +332,23 @@ HTML_TEMPLATE = '''
         <div class="dashboard-grid">
             <div class="kpi-card">
                 <div class="kpi-title">PORTFOLIO VALUE</div>
-                <div class="kpi-value">{{ "{:,.0f}".format(portfolio_stats.total_value).replace(",", " ") }} ₽</div>
-                <div class="kpi-sub positive">+{{ "%+.2f"|format(portfolio_stats.total_return_pct) }}%</div>
+                <!-- ИСПРАВЛЕНО: total_value -> current_value -->
+                <div class="kpi-value">{{ "{:,.0f}".format(portfolio_stats.current_value|default(0)).replace(",", " ") }} ₽</div>
+                <!-- ИСПРАВЛЕНО: total_return_pct -> portfolio_return -->
+                <div class="kpi-sub positive">+{{ "%+.2f"|format(portfolio_stats.portfolio_return|default(0)) }}%</div>
                 <i class="fas fa-wallet icon-bg"></i>
             </div>
             <div class="kpi-card">
                 <div class="kpi-title">TOTAL PROFIT</div>
-                <div class="kpi-value" style="color: {% if portfolio_stats.total_profit >= 0 %}var(--accent-green){% else %}var(--accent-red){% endif %};">
-                    {{ "%+.0f"|format(portfolio_stats.total_profit) }} ₽
+                <div class="kpi-value" style="color: {% if portfolio_stats.total_profit|default(0) >= 0 %}var(--accent-green){% else %}var(--accent-red){% endif %};">
+                    {{ "%+.0f"|format(portfolio_stats.total_profit|default(0)) }} ₽
                 </div>
                 <div class="kpi-sub">Lifetime P&L</div>
                 <i class="fas fa-chart-line icon-bg"></i>
             </div>
             <div class="kpi-card">
                 <div class="kpi-title">TOTAL TRADES</div>
-                <div class="kpi-value">{{ portfolio_stats.total_trades }}</div>
+                <div class="kpi-value">{{ portfolio_stats.total_trades|default(0) }}</div>
                 <div class="kpi-sub">Sessions: {{ session_count }}</div>
                 <i class="fas fa-exchange-alt icon-bg"></i>
             </div>
@@ -389,7 +391,7 @@ HTML_TEMPLATE = '''
                                 <div style="font-size: 0.8rem; color: var(--text-secondary);">{{ signal.reason[:30] }}...</div>
                             </div>
                             <div style="text-align: right;">
-                                <div style="font-size: 0.9rem;">{{ "%.0f"|format(signal.impact_score) }}/10</div>
+                                <div style="font-size: 0.9rem;">{{ "%.0f"|format(signal.impact_score|default(0)) }}/10</div>
                                 <div style="font-size: 0.75rem; color: var(--text-secondary);">Score</div>
                             </div>
                         </div>
