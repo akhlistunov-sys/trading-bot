@@ -1,6 +1,5 @@
-# technical_strategy.py - ОБНОВЛЕННЫЙ (MOMENTUM STRATEGY)
+# technical_strategy.py - ПОЛНЫЙ ФАЙЛ (MOMENTUM)
 import logging
-import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -9,20 +8,20 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 class TechnicalStrategy:
-    """Технический анализ: Momentum & Trend Following"""
+    """Технический анализ: Momentum & Trend Following (Покупка силы)"""
     
     def __init__(self, tinkoff_executor, lookback_period: int = 50):
         self.executor = tinkoff_executor
         self.lookback_period = lookback_period
         self.price_cache = {}
         
-        # РАСШИРЕННЫЙ СПИСОК ТИКЕРОВ (ТОП-25 MOEX)
+        # ТОП-25 Ликвидных акций РФ (Сбер, Газпром, IT, Ритейл)
         self.tracked_tickers = [
             'SBER', 'GAZP', 'LKOH', 'ROSN', 'GMKN', 'NVTK', 'YNDX', 'OZON', 
             'MGNT', 'FIVE', 'TATN', 'SNGS', 'VTBR', 'TCSG', 'ALRS', 'CHMF', 
             'NLMK', 'MAGN', 'PLZL', 'POLY', 'MOEX', 'AFKS', 'MTSS', 'PHOR', 'TRNFP'
         ]
-        logger.info(f"📊 TechnicalStrategy инициализирован для {len(self.tracked_tickers)} тикеров (Momentum)")
+        logger.info(f"📊 TechnicalStrategy (Momentum) инициализирован для {len(self.tracked_tickers)} тикеров")
 
     async def update_prices(self, ticker: str) -> None:
         """Обновляет кэш цен для тикера"""
@@ -31,22 +30,30 @@ class TechnicalStrategy:
             if price:
                 if ticker not in self.price_cache:
                     self.price_cache[ticker] = []
-                self.price_cache[ticker].append((datetime.now(), price))
+                # Добавляем цену и время
+                self.price_cache[ticker].append(price)
+                # Храним только нужную историю
                 if len(self.price_cache[ticker]) > self.lookback_period * 2:
                     self.price_cache[ticker] = self.price_cache[ticker][-self.lookback_period:]
         except Exception as e:
             logger.debug(f"⚠️ Ошибка обновления цены {ticker}: {str(e)[:50]}")
 
     def calculate_rsi(self, prices: List[float], period: int = 14) -> Optional[float]:
+        """Расчет RSI без Pandas для скорости"""
         if len(prices) < period + 1: return None
-        deltas = np.diff(prices)
+        
+        prices_np = np.array(prices)
+        deltas = np.diff(prices_np)
         seed = deltas[:period]
+        
         up = seed[seed >= 0].sum() / period
         down = -seed[seed < 0].sum() / period
+        
         if down == 0: return 100.0
         rs = up / down
         rsi = 100.0 - (100.0 / (1.0 + rs))
         
+        # Сглаживание
         for i in range(period, len(deltas)):
             delta = deltas[i]
             if delta > 0:
@@ -55,30 +62,44 @@ class TechnicalStrategy:
             else:
                 up_val = 0.0
                 down_val = -delta
+            
             up = (up * (period - 1) + up_val) / period
             down = (down * (period - 1) + down_val) / period
+            
             if down == 0: rsi = 100.0
             else:
                 rs = up / down
                 rsi = 100.0 - (100.0 / (1.0 + rs))
+        
         return rsi
 
     def calculate_bollinger_bands(self, prices: List[float], period: int = 20, std_dev: float = 2.0):
+        """Расчет полос Боллинджера"""
         if len(prices) < period: return None, None, None
-        sma = np.mean(prices[-period:])
-        std = np.std(prices[-period:])
-        return sma + (std * std_dev), sma, sma - (std * std_dev)
+        
+        # Берем последние N цен
+        slice_prices = np.array(prices[-period:])
+        sma = np.mean(slice_prices)
+        std = np.std(slice_prices)
+        
+        upper_band = sma + (std * std_dev)
+        lower_band = sma - (std * std_dev)
+        
+        return upper_band, sma, lower_band
 
     async def scan_for_signals(self) -> List[Dict]:
-        """Сканирование на импульс (Momentum)"""
+        """Сканирование рынка на импульс"""
         signals = []
+        
+        # Обновляем цены параллельно
         update_tasks = [self.update_prices(ticker) for ticker in self.tracked_tickers]
         await asyncio.gather(*update_tasks, return_exceptions=True)
         
         for ticker in self.tracked_tickers:
             if ticker not in self.price_cache or len(self.price_cache[ticker]) < 30:
                 continue
-            prices = [price for _, price in self.price_cache[ticker]]
+            
+            prices = self.price_cache[ticker]
             current_price = prices[-1]
             
             rsi = self.calculate_rsi(prices)
@@ -86,13 +107,14 @@ class TechnicalStrategy:
             
             if rsi is None or middle is None: continue
             
-            # СТРАТЕГИЯ MOMENTUM (ИМПУЛЬС)
-            # 1. RSI > 50 (Тренд вверх), но < 75 (Еще не перекуплен)
-            # 2. Цена ВЫШЕ средней линии Bollinger (Подтверждение тренда)
+            # --- ЛОГИКА MOMENTUM (ИМПУЛЬС) ---
+            # Покупаем, когда актив сильный, но еще не перегрет
             
+            # Условие на ПОКУПКУ:
+            # 1. RSI между 50 и 70 (Растущий тренд)
+            # 2. Цена выше средней линии (Подтверждение тренда)
             if 50.0 <= rsi <= 75.0 and current_price > middle:
-                # Рассчитываем силу сигнала
-                strength = 5 + int((rsi - 50) / 5) # 5..9
+                strength = 5 + int((rsi - 50) / 5) # Сила сигнала 5-9
                 
                 signal = {
                     'action': 'BUY',
@@ -108,9 +130,10 @@ class TechnicalStrategy:
                     'timestamp': datetime.now().isoformat()
                 }
                 signals.append(signal)
-                logger.info(f"🚀 Импульс на {ticker}: BUY (RSI={rsi:.1f})")
             
-            # ВЫХОД ИЗ ПОЗИЦИИ (Если RSI падает ниже 45 или пробивает среднюю вниз)
+            # Условие на ПРОДАЖУ (Выход):
+            # 1. RSI упал ниже 45 (Тренд ослаб)
+            # 2. ИЛИ Цена ушла под среднюю линию
             elif rsi < 45.0 and current_price < middle:
                 signal = {
                     'action': 'SELL',
