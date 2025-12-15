@@ -2,13 +2,15 @@
 # Exit on error
 set -o errexit
 
-echo "Updating pip..."
+echo "Build started..."
+
+# 1. Обновляем pip до последней версии
 pip install --upgrade pip
 
-echo "Installing dependencies..."
+# 2. Устанавливаем зависимости
 pip install -r requirements.txt
 
-echo "Setup complete."
+echo "Build complete."
 
 # 1. Обновляем pip и устанавливаем зависимости
 python -m pip install --upgrade pip
