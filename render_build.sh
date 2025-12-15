@@ -4,7 +4,7 @@ set -o errexit
 
 echo "Build started..."
 
-# 1. Обновляем pip до последней версии
+# 1. Обновляем pip
 pip install --upgrade pip
 
 # 2. Устанавливаем зависимости
