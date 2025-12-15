@@ -10,7 +10,7 @@ services:
     envVars:
       # ==================== СИСТЕМНЫЕ ====================
       - key: PYTHON_VERSION
-        value: 3.9.18
+        value: 3.11.9  # ✅ ОБНОВЛЕНО ДО 3.11 для совместимости с библиотеками
       - key: PORT
         value: 10000
       
@@ -46,12 +46,23 @@ services:
       - key: GIGACHAT_SCOPE
         value: GIGACHAT_API_PERS
       
+      # ==================== GEMINI (СЕКРЕТ) ====================
+      - key: GEMINI_API_KEY
+        sync: false
+      
+      # ==================== TINKOFF (СЕКРЕТ) - ОПЦИОНАЛЬНО ====================
+      - key: TINKOFF_API_TOKEN
+        sync: false
+        optional: true  # ✅ СДЕЛАНО ОПЦИОНАЛЬНЫМ
+      
       # ==================== OPENROUTER (СЕКРЕТ) ====================
       - key: OPENROUTER_API_TOKEN
         sync: false
+        optional: true  # ✅ СДЕЛАНО ОПЦИОНАЛЬНЫМ
       
       # ==================== FINAM (СЕКРЕТ) ====================
       - key: FINAM_API_TOKEN
         sync: false
+        optional: true  # ✅ СДЕЛАНО ОПЦИОНАЛЬНЫМ
       - key: FINAM_CLIENT_ID
         value: 621971R9IP3
