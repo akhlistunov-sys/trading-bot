@@ -6,4 +6,5 @@ httpx[http2]==0.27.0
 aiohttp==3.9.1
 protobuf==4.25.3
 certifi==2023.11.17
-pandas==2.2.3 # <-- Добавьте эту строку
+pandas==2.2.3
+google-generativeai==0.3.2
