@@ -1,4 +1,4 @@
-# app.py - С ЛОГАМИ, МЕНЮ И ПЕРСИСТЕНТНОСТЬЮ
+# app.py - С GEMINI DASHBOARD
 from flask import Flask, jsonify, render_template_string, request, redirect, url_for
 import datetime
 import time
@@ -12,30 +12,29 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-# БУФЕР ЛОГОВ (Для вывода на сайт)
+# БУФЕР ЛОГОВ
 log_buffer = deque(maxlen=100)
 
 class WebLogHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            color = "#a0a0a0" # серый
-            if "BUY" in msg or "TRADE" in msg: color = "#00b894" # зеленый
-            elif "SELL" in msg: color = "#ff4757" # красный
-            elif "GigaChat" in msg: color = "#0984e3" # синий
-            elif "WARNING" in msg: color = "#fdcb6e" # желтый
-            elif "ERROR" in msg: color = "#d63031" # темно-красный
+            color = "#a0a0a0"
+            if "BUY" in msg or "TRADE" in msg: color = "#00b894"
+            elif "SELL" in msg: color = "#ff4757"
+            elif "Gemini" in msg: color = "#a29bfe" # Фиолетовый для Gemini
+            elif "GigaChat" in msg: color = "#0984e3"
+            elif "WARNING" in msg: color = "#fdcb6e"
+            elif "ERROR" in msg: color = "#d63031"
             
             html_log = f'<div style="color: {color}; font-family: monospace; margin-bottom: 4px;">{msg}</div>'
             log_buffer.append(html_log)
         except: pass
 
-# Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger()
 logger.addHandler(WebLogHandler())
 
-# Импорты
 try:
     from news_fetcher import NewsFetcher
     from nlp_engine import NlpEngine
@@ -54,7 +53,6 @@ except ImportError as e:
 
 app = Flask(__name__)
 
-# Глобальные объекты
 bot_status = "ONLINE"
 session_count = 0
 last_signals = []
@@ -131,8 +129,9 @@ DASHBOARD_CONTENT = '''
             </div>
         </div>
         <div class="card">
-            <div style="color: #a0a0a0; font-size: 0.9em;">CASH BALANCE</div>
-            <div style="font-size: 1.8em; font-weight: bold;">{{ "{:,.0f}".format(stats.cash|default(0)).replace(",", " ") }} ₽</div>
+            <div style="color: #a0a0a0; font-size: 0.9em;">ACTIVE MODEL</div>
+            <div style="font-size: 1.4em; font-weight: bold; color: #a29bfe;">Gemini 1.5 Flash</div>
+            <div style="color: #a0a0a0; font-size: 0.8em;">+ GigaChat Backup</div>
         </div>
         <div class="card">
             <div style="color: #a0a0a0; font-size: 0.9em;">ACTIVE POSITIONS</div>
@@ -173,18 +172,14 @@ LOGS_CONTENT = '''
 {% extends "base" %}
 {% block content %}
     <h1><i class="fas fa-terminal"></i> System Logs</h1>
-    <p style="color: #a0a0a0;">Real-time execution logs from GigaChat, Finam, and RiskManager.</p>
     <div class="log-console" id="console">
         {% for log in logs %}
             {{ log|safe }}
         {% endfor %}
     </div>
     <script>
-        // Auto-scroll to bottom
         var objDiv = document.getElementById("console");
         objDiv.scrollTop = objDiv.scrollHeight;
-        
-        // Auto-refresh every 5 sec
         setTimeout(function(){ location.reload(); }, 5000);
     </script>
 {% endblock %}
@@ -205,13 +200,7 @@ TRADES_CONTENT = '''
                     <td>{{ trade.ticker }}</td>
                     <td>{{ trade.price }}</td>
                     <td>{{ trade.size }}</td>
-                    <td>
-                        {% if trade.profit is defined %}
-                            <span style="color: {% if trade.profit > 0 %}#00b894{% else %}#ff4757{% endif %}">{{ "%+.0f"|format(trade.profit) }}</span>
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
+                    <td>{{ "%+.0f"|format(trade.profit) if trade.profit is defined else '-' }}</td>
                 </tr>
             {% endfor %}
             </tbody>
@@ -220,40 +209,30 @@ TRADES_CONTENT = '''
 {% endblock %}
 '''
 
-# --- ЛОГИКА ТОРГОВЛИ ---
 async def trading_session_async():
     global bot_status, session_count
     if bot_status == "BUSY": return
     bot_status = "BUSY"
     session_count += 1
-    logger.info(f"🏁 Запуск торговой сессии #{session_count}")
+    logger.info(f"🏁 Запуск сессии #{session_count} (Engine: Gemini)")
     
     try:
-        # 1. Новости
         news = await news_fetcher.fetch_all_news()
-        
-        # 2. Технический анализ
         tech_signals = await technical_strategy.scan_for_signals()
-        
-        # 3. Обработка
         signals = await signal_pipeline.process_news_batch(news)
         all_signals = signals + tech_signals
         
-        # 4. Исполнение
         if all_signals:
-            # Получаем реальные цены
             tickers = [s['ticker'] for s in all_signals]
             prices = {}
             for t in tickers:
                 p = await tinkoff_executor.get_current_price(t)
                 if p: prices[t] = p
             
-            # Проверка выходов
             exits = virtual_portfolio.check_exit_conditions(prices)
             for exit_sig in exits:
                 virtual_portfolio.execute_trade(exit_sig, prices.get(exit_sig['ticker'], 0))
             
-            # Проверка входов
             for sig in all_signals:
                 t = sig['ticker']
                 if t in prices:
@@ -268,18 +247,11 @@ async def trading_session_async():
 def run_trading_session():
     threading.Thread(target=lambda: asyncio.run(trading_session_async())).start()
 
-# --- МАРШРУТЫ ---
 @app.route('/')
 def dashboard():
-    # Собираем шаблон
     full_html = HTML_TEMPLATE.replace('{% block content %}{% endblock %}', DASHBOARD_CONTENT)
-    # Удаляем наследование из подшаблона, так как мы склеили вручную
     full_html = full_html.replace('{% extends "base" %}', '')
-    
-    return render_template_string(full_html, 
-                                  page='dashboard',
-                                  stats=virtual_portfolio.get_stats(),
-                                  positions=virtual_portfolio.positions)
+    return render_template_string(full_html, page='dashboard', stats=virtual_portfolio.get_stats(), positions=virtual_portfolio.positions)
 
 @app.route('/logs')
 def logs():
