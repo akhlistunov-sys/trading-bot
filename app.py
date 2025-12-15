@@ -414,7 +414,7 @@ HTML_TEMPLATE = '''
                 </div>
                  <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
                     <span style="color: var(--text-secondary);">Stop Loss (Base)</span>
-                    <span style="color: var(--accent-red);">1.5%</span>
+                    <span style="color: var(--accent-red);">2.0%</span>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
                     <span style="color: var(--text-secondary);">Short Selling</span>
