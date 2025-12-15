@@ -3,21 +3,31 @@
 
 echo "🚀 Начало сборки на Render..."
 
-# 1. Устанавливаем Python зависимости
-pip install -r requirements.txt
+# 1. Обновляем pip и устанавливаем зависимости
+python -m pip install --upgrade pip
+pip install setuptools wheel
 
-# 2. Простая SSL настройка
-python setup_certificates.py
+# 2. Устанавливаем Python зависимости
+pip install -r requirements.txt
 
 # 3. Создаем .env файл
 echo "🔧 Создание .env файла..."
 cat > .env << EOF
+# Python
+PYTHONPATH=.
+
 # GigaChat
 GIGACHAT_CLIENT_ID=${GIGACHAT_CLIENT_ID:-}
 GIGACHAT_CLIENT_SECRET=${GIGACHAT_CLIENT_SECRET:-}
 GIGACHAT_SCOPE=${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
 
-# OpenRouter
+# Gemini
+GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
+# Tinkoff (опционально)
+TINKOFF_API_TOKEN=${TINKOFF_API_TOKEN:-}
+
+# OpenRouter (опционально)
 OPENROUTER_API_TOKEN=${OPENROUTER_API_TOKEN:-}
 
 # Finam
