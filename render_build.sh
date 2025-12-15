@@ -1,7 +1,14 @@
-#!/bin/bash
-# render_build.sh - Упрощенный Build Command
+#!/usr/bin/env bash
+# Exit on error
+set -o errexit
 
-echo "🚀 Начало сборки на Render..."
+echo "Updating pip..."
+pip install --upgrade pip
+
+echo "Installing dependencies..."
+pip install -r requirements.txt
+
+echo "Setup complete."
 
 # 1. Обновляем pip и устанавливаем зависимости
 python -m pip install --upgrade pip
