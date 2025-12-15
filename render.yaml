@@ -1,16 +1,14 @@
 services:
   - type: web
-    name: ai-news-trader
+    name: neurotrader-pro
     env: python
-    region: frankfurt
-    plan: free
-    buildCommand: bash render_build.sh
-    startCommand: python app.py
-    autoDeploy: true
+    buildCommand: ./render_build.sh
+    startCommand: gunicorn app:app
     envVars:
-      # ==================== СИСТЕМНЫЕ ====================
       - key: PYTHON_VERSION
-        value: 3.11.9  # ✅ ОБНОВЛЕНО ДО 3.11 для совместимости с библиотеками
+        value: 3.11.4
+      - key: TRADING_MODE
+        value: SANDBOX
       - key: PORT
         value: 10000
       
