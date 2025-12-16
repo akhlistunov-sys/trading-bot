@@ -1,4 +1,4 @@
-# app.py - NEUROTRADER DARK UI + FINAM CORE
+# app.py - NEUROTRADER: GIGACHAT EDITION
 from flask import Flask, render_template_string, redirect, url_for
 import time
 import threading
@@ -10,25 +10,27 @@ from collections import deque
 from datetime import datetime
 from dotenv import load_dotenv
 
+# Загрузка переменных окружения
 load_dotenv(override=True)
 
 # --- БУФЕР ЛОГОВ ДЛЯ ВЕБ-ИНТЕРФЕЙСА ---
-log_buffer = deque(maxlen=100)
+log_buffer = deque(maxlen=200)
 
 class WebLogHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Цветовая схема под темную тему
-            color = "#a0a1a7" # серый по умолчанию
-            if "BUY" in msg: color = "#2ecc71" # зеленый
-            elif "SELL" in msg: color = "#e74c3c" # красный
-            elif "ERROR" in msg: color = "#ff6b6b" # светло-красный
-            elif "WARNING" in msg: color = "#f1c40f" # желтый
-            elif "Finam" in msg: color = "#3498db" # голубой
-            elif "Gemini" in msg: color = "#9b59b6" # фиолетовый
+            # Цветовая схема (Dark Mode)
+            color = "#a0a1a7" # Серый (Info)
             
-            # Форматирование времени
+            if "BUY" in msg: color = "#2ecc71"    # Зеленый
+            elif "SELL" in msg: color = "#e74c3c"  # Красный
+            elif "ERROR" in msg or "❌" in msg: color = "#ff6b6b" # Ярко-красный
+            elif "WARNING" in msg or "⚠️" in msg: color = "#f1c40f" # Желтый
+            elif "GigaChat" in msg: color = "#27ae60" # Сбер-зеленый
+            elif "Gemini" in msg: color = "#9b59b6"   # Фиолетовый
+            elif "Finam" in msg: color = "#3498db"    # Голубой
+            
             time_str = datetime.now().strftime("%H:%M:%S")
             html_log = f'<div style="color: {color}; font-family: \'JetBrains Mono\', monospace; margin-bottom: 6px; font-size: 12px; border-bottom: 1px solid #2d3446; padding-bottom: 2px;"><span style="opacity:0.5; margin-right: 8px;">[{time_str}]</span>{msg}</div>'
             log_buffer.append(html_log)
@@ -37,17 +39,15 @@ class WebLogHandler(logging.Handler):
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger()
-# Удаляем старые хендлеры, чтобы не дублировать
-if logger.hasHandlers():
-    logger.handlers.clear()
-logger.addHandler(logging.StreamHandler()) # В консоль
-logger.addHandler(WebLogHandler())     # В веб
+if logger.hasHandlers(): logger.handlers.clear()
+logger.addHandler(logging.StreamHandler())
+logger.addHandler(WebLogHandler())
 
 # --- ИМПОРТЫ МОДУЛЕЙ ---
 try:
     from news_fetcher import NewsFetcher
     from nlp_engine import NlpEngine
-    from finam_client import FinamClient # <-- НОВЫЙ КЛИЕНТ
+    from finam_client import FinamClient
     from virtual_portfolio import VirtualPortfolioPro
     from enhanced_analyzer import EnhancedAnalyzer
     from news_prefilter import NewsPreFilter
@@ -55,451 +55,269 @@ try:
     from signal_pipeline import SignalPipeline
     from technical_strategy import TechnicalStrategy
 except ImportError as e:
-    logger.error(f"CRITICAL IMPORT ERROR: {e}")
+    logger.critical(f"❌ IMPORT ERROR: {e}")
+    exit(1)
 
 app = Flask(__name__)
 bot_status = "ONLINE"
 session_count = 0
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
+# --- ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ ---
 try:
-    logger.info("🚀 System Boot: NeuroTrader AI")
+    logger.info("🚀 SYSTEM BOOT: Starting NeuroTrader AI...")
     
+    # 1. Данные и Новости
+    finam_client = FinamClient()
     news_fetcher = NewsFetcher()
-    nlp_engine = NlpEngine()
-    finam_client = FinamClient() # Используем Finam
     
-    risk_manager = RiskManager()
+    # 2. Мозг (AI)
+    nlp_engine = NlpEngine()
+    if nlp_engine.gigachat_available:
+        logger.info("🧠 AI Core: GigaChat Connected")
+    elif nlp_engine.gemini_available:
+        logger.info("🧠 AI Core: Gemini Connected (Backup Mode)")
+    else:
+        logger.warning("⚠️ AI Core: NO CONNECTION (Using Algo Fallback)")
+
+    # 3. Стратегия и Риски
+    risk_manager = RiskManager(initial_capital=100000)
     enhanced_analyzer = EnhancedAnalyzer()
     news_prefilter = NewsPreFilter()
-    
-    # Виртуальный портфель (хранит состояние)
-    virtual_portfolio = VirtualPortfolioPro(initial_capital=1250000) 
-    
-    # Техническая стратегия на данных Finam
     technical_strategy = TechnicalStrategy(finam_client=finam_client)
+    
+    # 4. Портфель (Виртуальный)
+    virtual_portfolio = VirtualPortfolioPro(initial_capital=100000)
 
-    # Адаптер для верификации (связывает FinamClient с Pipeline)
+    # 5. Адаптер (Связывает Pipeline с FinamClient)
     class FinamAdapterVerifier:
+        def __init__(self, client):
+            self.client = client
+            
         async def get_current_prices(self, tickers):
+            """Получает цены списком"""
             prices = {}
             for t in tickers:
-                p = await finam_client.get_current_price(t)
+                p = await self.client.get_current_price(t)
                 if p: prices[t] = p
             return prices
+            
         async def verify_signal(self, analysis):
-            # В упрощенном режиме считаем сигнал валидным, если есть тикер
+            """Базовая верификация"""
             tickers = analysis.get('tickers', [])
+            if not tickers: return {'valid': False}
+            
+            # Проверяем цену главного тикера
+            ticker = tickers[0]
+            price = await self.client.get_current_price(ticker)
+            
             return {
-                'valid': bool(tickers), 
-                'primary_ticker': tickers[0] if tickers else None,
-                'reason': 'Finam Checked'
+                'valid': bool(price and price > 0),
+                'primary_ticker': ticker,
+                'primary_price': price,
+                'reason': 'Price check passed' if price else 'No price data'
             }
 
-    finam_verifier = FinamAdapterVerifier()
+    finam_verifier = FinamAdapterVerifier(finam_client)
 
+    # 6. Сборка Пайплайна
     signal_pipeline = SignalPipeline(
         nlp_engine, finam_verifier, risk_manager, 
         enhanced_analyzer, news_prefilter, technical_strategy
     )
+    
     logger.info("✅ Core Systems: OPERATIONAL")
 
 except Exception as e:
-    logger.error(f"❌ System Init Failed: {e}")
+    logger.critical(f"❌ CRITICAL INIT FAILURE: {e}")
+    raise e
 
-# --- ТОРГОВАЯ ЛОГИКА ---
+# --- ТОРГОВЫЙ ЦИКЛ (ASYNC) ---
 async def trading_loop_async():
     global bot_status, session_count
     if bot_status == "ANALYZING": return
     
     bot_status = "ANALYZING"
     session_count += 1
-    logger.info(f"⚡ Session #{session_count}: Market Scan Started")
+    logger.info(f"⚡ Session #{session_count}: Scanning Market...")
     
     try:
         # 1. Получение новостей
         news = await news_fetcher.fetch_all_news()
         
-        # 2. Генерация сигналов (News + Tech)
+        # 2. Обработка пайплайном (AI + Tech)
+        # Здесь происходит магия: GigaChat анализирует новости, TechStrategy смотрит RSI
         signals = await signal_pipeline.process_news_batch(news)
         
-        # 3. Работа с ценами и ордерами
+        # 3. Работа с позициями
+        tickers_of_interest = set()
         if signals:
-            tickers = list(set([s['ticker'] for s in signals if s.get('ticker')]))
-            prices = await finam_verifier.get_current_prices(tickers)
+            tickers_of_interest.update([s['ticker'] for s in signals])
+        tickers_of_interest.update(virtual_portfolio.positions.keys())
+        
+        # Получаем актуальные цены для всего списка
+        current_prices = await finam_verifier.get_current_prices(list(tickers_of_interest))
+        
+        # 3.1 Проверка выходов (Stop Loss / Take Profit)
+        exits = virtual_portfolio.check_exit_conditions(current_prices)
+        for exit_sig in exits:
+            res = virtual_portfolio.execute_trade(exit_sig, current_prices.get(exit_sig['ticker']))
+            # Озвучиваем результат
+            if res['profit'] > 0:
+                logger.info(f"💰 PROFIT: {exit_sig['ticker']} +{res['profit']:.2f} RUB")
+        
+        # 3.2 Проверка входов (Новые сигналы)
+        for sig in signals:
+            t = sig['ticker']
+            price = current_prices.get(t)
             
-            # 3.1 Проверка выходов (Stop Loss / Take Profit)
-            # Получаем цены для имеющихся позиций
-            portfolio_tickers = list(virtual_portfolio.positions.keys())
-            portfolio_prices = await finam_verifier.get_current_prices(portfolio_tickers)
-            prices.update(portfolio_prices) # Объединяем цены
-            
-            exits = virtual_portfolio.check_exit_conditions(prices)
-            
-            for exit_sig in exits:
-                t = exit_sig['ticker']
-                size = int(exit_sig['position_size'])
-                # Исполнение в Finam
-                res = await finam_client.execute_order(t, 'SELL', size)
+            if price and sig['action'] == 'BUY':
+                # Исполняем в виртуальном портфеле
+                res = virtual_portfolio.execute_trade(sig, price)
+                
                 if res['status'] == 'EXECUTED':
-                    virtual_portfolio.execute_trade(exit_sig, prices.get(t, 0))
-            
-            # 3.2 Проверка входов
-            for sig in signals:
-                t = sig['ticker']
-                if t in prices and sig['action'] == 'BUY':
-                    size = int(sig.get('position_size', 1))
-                    # Исполнение в Finam
-                    order = await finam_client.execute_order(t, 'BUY', size)
-                    
-                    if order['status'] == 'EXECUTED':
-                        # Фиксация в портфеле
-                        res = virtual_portfolio.execute_trade(sig, prices[t])
-                        if res['status'] == 'EXECUTED':
-                            logger.info(f"✅ CONFIRMED: BUY {size} {t} @ {prices[t]:.2f}")
+                    provider = sig.get('ai_provider', 'Algo').upper()
+                    logger.info(f"🚀 ORDER EXECUTED: BUY {t} | Src: {provider}")
 
     except Exception as e:
         logger.error(f"❌ Session Error: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         bot_status = "ONLINE"
-        logger.info("💤 Session Complete. Standing by.")
+        logger.info("💤 Session Complete. Waiting next cycle.")
 
+# Обретка для запуска асинхронного цикла в потоке
 def run_trading_session():
     threading.Thread(target=lambda: asyncio.run(trading_loop_async())).start()
 
-# --- WEB UI (NEUROTRADER DARK THEME) ---
+# --- WEB UI (FLASK) ---
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NeuroTrader AI Dashboard</title>
-    <!-- Icons & Fonts -->
+    <title>NeuroTrader: GigaChat Edition</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --bg-dark: #13141f;
-            --sidebar-bg: #161722;
-            --panel-bg: #1c1e2a;
-            --border-col: #2d3446;
-            --accent: #7b2cbf;
-            --accent-hover: #9b51e0;
-            --success: #00b894;
-            --danger: #ff4757;
-            --text-main: #ffffff;
-            --text-muted: #8b9bb4;
-        }
+        :root { --bg: #0d1117; --panel: #161b22; --border: #30363d; --accent: #238636; --text: #c9d1d9; }
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
+        .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 20px; }
+        .header { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn { background: var(--accent); color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; }
+        .btn:hover { opacity: 0.9; }
         
-        * { box-sizing: border-box; }
-
-        body { 
-            background-color: var(--bg-dark); 
-            color: var(--text-main); 
-            font-family: 'Inter', sans-serif; 
-            margin: 0; 
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        /* SIDEBAR */
-        .sidebar {
-            width: 260px;
-            background-color: var(--sidebar-bg);
-            border-right: 1px solid var(--border-col);
-            display: flex;
-            flex-direction: column;
-            padding: 24px;
-        }
+        .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        .kpi-box { background: #21262d; padding: 10px; border-radius: 6px; }
+        .kpi-label { font-size: 12px; color: #8b949e; }
+        .kpi-val { font-size: 18px; font-weight: 600; color: #f0f6fc; }
         
-        .brand {
-            font-size: 20px;
-            font-weight: 700;
-            color: white;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 40px;
-        }
-        .brand i { color: var(--accent); font-size: 24px; }
-
-        .nav-item {
-            display: flex;
-            align-items: center;
-            padding: 12px 16px;
-            color: var(--text-muted);
-            text-decoration: none;
-            border-radius: 10px;
-            margin-bottom: 8px;
-            transition: 0.2s;
-            font-weight: 500;
-        }
-        .nav-item i { width: 24px; margin-right: 8px; }
-        .nav-item:hover, .nav-item.active {
-            background: rgba(123, 44, 191, 0.1);
-            color: var(--accent);
-        }
-
-        /* MAIN AREA */
-        .main {
-            flex: 1;
-            padding: 32px;
-            overflow-y: auto;
-        }
-
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 32px;
-        }
-
-        .page-title h1 { margin: 0; font-size: 24px; }
-        .status-badge {
-            font-size: 12px;
-            background: rgba(0, 184, 148, 0.15);
-            color: var(--success);
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .analyze-btn {
-            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            box-shadow: 0 4px 12px rgba(123, 44, 191, 0.3);
-            transition: transform 0.2s;
-        }
-        .analyze-btn:hover { transform: translateY(-2px); }
-
-        /* KPI CARDS */
-        .grid-kpi {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 24px;
-            margin-bottom: 32px;
-        }
-
-        .card {
-            background: var(--panel-bg);
-            border-radius: 16px;
-            padding: 24px;
-            border: 1px solid var(--border-col);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .kpi-label { color: var(--text-muted); font-size: 12px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 8px; }
-        .kpi-value { font-size: 28px; font-weight: 700; color: white; margin-bottom: 4px; }
-        .kpi-sub { font-size: 13px; font-weight: 500; }
-        .text-up { color: var(--success); }
-        .text-down { color: var(--danger); }
-        
-        .card-icon {
-            position: absolute;
-            top: 24px; right: 24px;
-            font-size: 24px;
-            color: var(--text-muted);
-            opacity: 0.2;
-        }
-
-        /* CONTENT GRID */
-        .grid-content {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 24px;
-            height: 500px;
-        }
-
-        .panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        .panel-title { font-size: 16px; font-weight: 600; }
-
-        /* TABLE */
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; color: var(--text-muted); font-size: 12px; font-weight: 600; padding-bottom: 12px; border-bottom: 1px solid var(--border-col); }
-        td { padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
-        .ticker-badge { background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 4px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-
-        /* LOGS */
-        .log-container {
-            background: #0f1016;
-            border-radius: 12px;
-            padding: 16px;
-            height: 420px;
-            overflow-y: auto;
-            border: 1px solid var(--border-col);
-        }
+        th { text-align: left; color: #8b949e; font-size: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+        td { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
         
-        /* SCROLLBAR */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #3c4050; border-radius: 3px; }
-
+        .log-box { height: 500px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; background: #000; padding: 15px; border-radius: 6px; border: 1px solid var(--border); }
+        
+        .status-dot { height: 8px; width: 8px; background-color: #238636; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .status-dot.analyzing { background-color: #d29922; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
-
-    <!-- SIDEBAR -->
-    <div class="sidebar">
-        <div class="brand">
-            <i class="fas fa-brain"></i>
-            <span>NeuroTrader</span>
+    <div class="header">
+        <div style="font-weight: 600; font-size: 20px; display: flex; align-items: center;">
+            <i class="fas fa-robot" style="margin-right: 10px; color: #58a6ff;"></i> NeuroTrader AI
         </div>
-        
-        <a href="/" class="nav-item active"><i class="fas fa-th-large"></i> Dashboard</a>
-        <a href="/trades" class="nav-item"><i class="fas fa-history"></i> Trade History</a>
-        <a href="/settings" class="nav-item"><i class="fas fa-cog"></i> Settings</a>
-        
-        <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border-col);">
-            <div style="color: var(--text-muted); font-size: 12px;">Server Status</div>
-            <div style="display:flex; align-items:center; gap:6px; margin-top:6px; font-size:13px;">
-                <div style="width:8px; height:8px; background:var(--success); border-radius:50%; box-shadow: 0 0 8px var(--success);"></div>
-                Connected (Finam)
-            </div>
+        <div>
+            <span style="margin-right: 15px; font-size: 14px; color: #8b949e;">
+                <span class="status-dot {% if status == 'ANALYZING' %}analyzing{% endif %}"></span> {{ status }}
+            </span>
+            <a href="/force" class="btn"><i class="fas fa-bolt"></i> Force Run</a>
         </div>
     </div>
 
-    <!-- MAIN -->
-    <div class="main">
-        
-        <!-- HEADER -->
-        <div class="header">
-            <div class="page-title">
-                <h1>AI Market Dashboard</h1>
-                <div class="status-badge">
-                    <i class="fas fa-circle" style="font-size: 6px;"></i> {{ status }}
-                </div>
-            </div>
-            <a href="/force" class="analyze-btn">
-                <i class="fas fa-bolt"></i> Analyze Market
-            </a>
-        </div>
-
-        <!-- KPI GRID -->
-        <div class="grid-kpi">
+    <div class="container">
+        <!-- SIDEBAR -->
+        <div>
             <div class="card">
-                <div class="kpi-label">Portfolio Value</div>
-                <div class="kpi-value">{{ "{:,.0f}".format(stats.current_value).replace(',', ' ') }} ₽</div>
-                <div class="kpi-sub {% if stats.portfolio_return >= 0 %}text-up{% else %}text-down{% endif %}">
-                    <i class="fas fa-chart-line"></i> {{ "{:+.2f}".format(stats.portfolio_return) }}%
-                </div>
-                <i class="fas fa-wallet card-icon"></i>
-            </div>
-            
-            <div class="card">
-                <div class="kpi-label">Total Profit</div>
-                <div class="kpi-value {% if stats.total_profit >= 0 %}text-up{% else %}text-down{% endif %}">
-                    {{ "{:+,.0f}".format(stats.total_profit).replace(',', ' ') }} ₽
-                </div>
-                <div class="kpi-sub" style="color: var(--text-muted);">All time</div>
-                <i class="fas fa-coins card-icon"></i>
-            </div>
-            
-            <div class="card">
-                <div class="kpi-label">Total Trades</div>
-                <div class="kpi-value">{{ stats.total_trades|default(0) }}</div>
-                <div class="kpi-sub" style="color: var(--text-muted);">Session #{{ session }}</div>
-                <i class="fas fa-exchange-alt card-icon"></i>
-            </div>
-
-            <div class="card">
-                <div class="kpi-label">Active Model</div>
-                <div class="kpi-value" style="font-size: 20px;">Gemini 1.5</div>
-                <div class="kpi-sub" style="color: var(--accent);">Latency: 120ms</div>
-                <i class="fas fa-microchip card-icon"></i>
-            </div>
-        </div>
-
-        <!-- MAIN GRID -->
-        <div class="grid-content">
-            
-            <!-- LEFT: POSITIONS -->
-            <div class="card">
-                <div class="panel-header">
-                    <div class="panel-title">Active Positions</div>
-                    <div style="font-size: 12px; color: var(--text-muted);">{{ positions|length }} Active</div>
+                <div style="font-weight: 600; margin-bottom: 15px; color: #58a6ff;">Portfolio</div>
+                <div class="kpi-grid">
+                    <div class="kpi-box">
+                        <div class="kpi-label">Total Value</div>
+                        <div class="kpi-val">{{ "{:,.0f}".format(stats.current_value) }} ₽</div>
+                    </div>
+                    <div class="kpi-box">
+                        <div class="kpi-label">Cash</div>
+                        <div class="kpi-val">{{ "{:,.0f}".format(stats.cash) }} ₽</div>
+                    </div>
+                    <div class="kpi-box">
+                        <div class="kpi-label">Profit</div>
+                        <div class="kpi-val" style="color: {% if stats.total_profit >= 0 %}#238636{% else %}#da3633{% endif %};">
+                            {{ "{:+,.0f}".format(stats.total_profit) }} ₽
+                        </div>
+                    </div>
+                    <div class="kpi-box">
+                        <div class="kpi-label">Trades</div>
+                        <div class="kpi-val">{{ stats.total_trades }}</div>
+                    </div>
                 </div>
                 
+                <div style="font-weight: 600; margin-bottom: 10px; margin-top: 20px;">Active Positions</div>
                 {% if positions %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ASSET</th>
-                            <th>SIZE</th>
-                            <th>ENTRY</th>
-                            <th>VALUE</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                    <table style="font-size: 12px;">
                         {% for t, p in positions.items() %}
                         <tr>
-                            <td><span class="ticker-badge">{{ t }}</span></td>
-                            <td style="font-weight:600;">{{ p.size }}</td>
-                            <td style="color:var(--text-muted);">{{ "{:.2f}".format(p.avg_price) }}</td>
-                            <td style="color:var(--text-main);">{{ "{:,.0f}".format(p.size * p.avg_price).replace(',', ' ') }} ₽</td>
+                            <td><b>{{ t }}</b></td>
+                            <td>{{ p.size }}</td>
+                            <td>{{ "{:.1f}".format(p.avg_price) }}</td>
                         </tr>
                         {% endfor %}
-                    </tbody>
-                </table>
+                    </table>
                 {% else %}
-                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:200px; color:var(--text-muted);">
-                    <i class="fas fa-box-open" style="font-size:32px; margin-bottom:12px; opacity:0.3;"></i>
-                    No active positions
-                </div>
+                    <div style="color: #8b949e; font-size: 13px;">No positions</div>
                 {% endif %}
             </div>
-
-            <!-- RIGHT: LOGS -->
-            <div class="card">
-                <div class="panel-header">
-                    <div class="panel-title">Live AI Signals</div>
-                    <div class="status-badge" style="background:rgba(123, 44, 191, 0.1); color:var(--accent);">Live</div>
-                </div>
-                <div class="log-container" id="logBox">
-                    {% for log in logs %}
-                        {{ log|safe }}
-                    {% endfor %}
+            
+            <div class="card" style="margin-top: 20px;">
+                <div style="font-weight: 600; margin-bottom: 10px; color: #a371f7;">AI Core Status</div>
+                <div style="font-size: 13px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                        <span>Primary (GigaChat)</span>
+                        <span style="color: #238636;">Active</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                        <span>Backup (Gemini)</span>
+                        <span style="color: #8b949e;">Standby</span>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 11px; color: #8b949e;">
+                        Session #{{ session }}
+                    </div>
                 </div>
             </div>
-            
+        </div>
+
+        <!-- LOGS -->
+        <div class="card">
+            <div style="font-weight: 600; margin-bottom: 10px;">Live System Logs</div>
+            <div class="log-box" id="logBox">
+                {% for log in logs %}
+                    {{ log|safe }}
+                {% endfor %}
+            </div>
         </div>
     </div>
 
     <script>
-        // Auto-scroll logs
-        var logBox = document.getElementById("logBox");
+        const logBox = document.getElementById("logBox");
         logBox.scrollTop = logBox.scrollHeight;
-        
-        // Auto-refresh logic (only if not scrolling manually)
-        setTimeout(function(){ 
-            location.reload(); 
-        }, 10000); // 10 seconds refresh
+        setTimeout(() => location.reload(), 5000); // Auto-refresh 5s
     </script>
 </body>
 </html>
 '''
 
-# --- МАРШРУТЫ ---
 @app.route('/')
 def dashboard():
     stats = virtual_portfolio.get_stats()
@@ -517,12 +335,12 @@ def force():
     run_trading_session()
     return redirect(url_for('dashboard'))
 
-# --- ЗАПУСК ---
+# --- ЗАПУСК СЕРВЕРА ---
 if __name__ == '__main__':
-    # Планировщик (каждые 15 минут)
+    # Планировщик: каждые 15 минут
     schedule.every(15).minutes.do(run_trading_session)
     
-    # Фоновый поток для планировщика
+    # Поток планировщика
     def schedule_loop():
         while True:
             schedule.run_pending()
@@ -530,6 +348,9 @@ if __name__ == '__main__':
     
     threading.Thread(target=schedule_loop, daemon=True).start()
     
-    # Запуск сервера
+    # Запуск Flask
     port = int(os.environ.get("PORT", 10000))
+    # Запускаем первую сессию анализа сразу при старте (в фоне)
+    run_trading_session()
+    
     app.run(host='0.0.0.0', port=port)
