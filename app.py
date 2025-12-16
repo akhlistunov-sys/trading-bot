@@ -1,4 +1,4 @@
-# app.py - NEUROTRADER PRO INTERFACE
+# app.py - FIX 500 ERROR (ROBUST TEMPLATE)
 from flask import Flask, render_template_string, redirect, url_for
 import time
 import threading
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-# --- SYSTEM LOGS (Hidden on main page) ---
+# --- SYSTEM LOGS ---
 log_buffer = deque(maxlen=300)
 class WebLogHandler(logging.Handler):
     def emit(self, record):
@@ -84,15 +84,12 @@ async def trading_task():
         news = await news_fetcher.fetch_all_news()
         signals = await pipeline.process_news_batch(news)
         
-        # Portfolio Update
         all_tickers = set([s['ticker'] for s in signals] + list(virtual_portfolio.positions.keys()))
         prices = await verifier.get_current_prices(list(all_tickers))
         
-        # Exits
         for exit_sig in virtual_portfolio.check_exit_conditions(prices):
             virtual_portfolio.execute_trade(exit_sig, prices.get(exit_sig['ticker']))
             
-        # Entries
         for sig in signals:
             if sig['ticker'] in prices and sig['action'] == 'BUY':
                 virtual_portfolio.execute_trade(sig, prices[sig['ticker']])
@@ -148,6 +145,7 @@ BASE_HTML = """
         .s-SIGNAL { background:rgba(35,134,54,0.2); color:#3fb950; }
         .s-FILTER { background:rgba(110,118,129,0.2); color:#8b949e; }
         .s-SKIP { background:rgba(210,153,34,0.2); color:#d29922; }
+        .s-REJECT { background:rgba(218,54,51,0.2); color:#da3633; }
     </style>
 </head>
 <body>
@@ -163,7 +161,6 @@ BASE_HTML = """
 def dashboard():
     stats = virtual_portfolio.get_stats()
     
-    # KPI HTML
     kpi = f"""
     <div class="grid">
         <div class="card">
@@ -183,10 +180,11 @@ def dashboard():
     </div>
     """
     
-    # POSITIONS HTML
     pos_rows = ""
     for t, p in virtual_portfolio.positions.items():
-        pos_rows += f"<tr><td><span class='ticker'>{t}</span></td><td>{p['size']}</td><td>{p['avg_price']:.1f}</td><td>-</td></tr>"
+        # ЗАЩИТА ОТ ОШИБКИ: Используем .get()
+        avg = p.get('avg_price', p.get('avg', 0))
+        pos_rows += f"<tr><td><span class='ticker'>{t}</span></td><td>{p['size']}</td><td>{avg:.1f}</td><td>-</td></tr>"
     
     pos_table = f"""
     <div class="card">
@@ -196,7 +194,6 @@ def dashboard():
     </div>
     """
     
-    # RECENT TRADES
     trade_rows = ""
     for tr in stats['trade_history'][:5]:
         color = "val-up" if tr['action'] == "BUY" else "val-down"
@@ -215,29 +212,15 @@ def dashboard():
 @app.route('/analysis')
 def analysis():
     history = pipeline.get_ai_history()
-    
     rows = ""
     for item in history:
         badge = f"<span class='status-badge s-{item['status']}'>{item['status']}</span>"
-        rows += f"""
-        <tr>
-            <td>{item['time']}</td>
-            <td>{item['source']}</td>
-            <td>{item['title']}</td>
-            <td>{badge}</td>
-            <td><span class='ticker'>{item['result']}</span></td>
-            <td style="color:#8b949e;">{item['reason']}</td>
-            <td>{item['provider']}</td>
-        </tr>
-        """
+        rows += f"<tr><td>{item['time']}</td><td>{item['source']}</td><td>{item['title']}</td><td>{badge}</td><td><span class='ticker'>{item['result']}</span></td><td style='color:#8b949e;'>{item['reason']}</td><td>{item['provider']}</td></tr>"
         
     table = f"""
     <div class="card">
         <h3 style="margin-top:0; font-size:16px;">AI Decision Feed</h3>
-        <table>
-            <thead><tr><th>Time</th><th>Source</th><th>News Header</th><th>Verdict</th><th>Target</th><th>Reasoning</th><th>AI Model</th></tr></thead>
-            <tbody>{rows}</tbody>
-        </table>
+        <table><thead><tr><th>Time</th><th>Source</th><th>News Header</th><th>Verdict</th><th>Target</th><th>Reasoning</th><th>AI Model</th></tr></thead><tbody>{rows}</tbody></table>
     </div>
     """
     return render_template_string(BASE_HTML, nav=render_template_string(NAV_HTML, page='analysis', status=bot_status), content=table)
@@ -245,14 +228,7 @@ def analysis():
 @app.route('/system')
 def system():
     logs = "".join(list(log_buffer))
-    content = f"""
-    <div class="card">
-        <h3 style="margin-top:0; font-size:16px;">System Logs (Live)</h3>
-        <div style="background:#000; padding:10px; border-radius:4px; font-family:monospace; height:500px; overflow-y:auto; font-size:12px;">
-            {logs}
-        </div>
-    </div>
-    """
+    content = f"""<div class="card"><h3 style="margin-top:0; font-size:16px;">System Logs (Live)</h3><div style="background:#000; padding:10px; border-radius:4px; font-family:monospace; height:500px; overflow-y:auto; font-size:12px;">{logs}</div></div>"""
     return render_template_string(BASE_HTML, nav=render_template_string(NAV_HTML, page='system', status=bot_status), content=content)
 
 @app.route('/force')
