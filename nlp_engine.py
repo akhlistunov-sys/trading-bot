@@ -1,4 +1,4 @@
-# nlp_engine.py - GIGACHAT PRIMARY (QUEUED) + GEMINI BACKUP
+# nlp_engine.py - GIGACHAT (OLD ROBUST LOGIC) + GEMINI PRO
 import logging
 import json
 import os
@@ -6,113 +6,137 @@ import asyncio
 import httpx
 import time
 import uuid
+import base64
 import re
 from typing import Dict, Optional
 import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-class NlpEngine:
-    """
-    NLP Движок:
-    1. GigaChat (Primary) - строго 1 запрос за раз (Free Tier limitation).
-    2. Gemini (Backup) - если GigaChat недоступен.
-    """
+# ==================== AUTH CLASS (ИЗ СТАРОЙ ВЕРСИИ) ====================
+class GigaChatAuth:
+    """Авторизация GigaChat (Ручная сборка заголовка, без SSL)"""
     
-    def __init__(self):
-        self.stats = {'gigachat_requests': 0, 'gemini_requests': 0, 'errors': 0}
+    def __init__(self, client_id: str, client_secret: str, scope: str = "GIGACHAT_API_PERS"):
+        self.client_id = client_id
+        # Чистим секрет от кавычек жестко
+        self.client_secret = client_secret.strip('"').strip("'")
+        self.scope = scope
+        self.access_token = None
+        self.token_expiry = 0
         
-        # --- GIGACHAT SETUP (PRIMARY) ---
-        # Очищаем от возможных кавычек в .env
-        self.gigachat_id = os.getenv('GIGACHAT_CLIENT_ID', '').strip('"').strip("'")
-        self.gigachat_secret = os.getenv('GIGACHAT_CLIENT_SECRET', '').strip('"').strip("'")
-        self.gigachat_scope = os.getenv('GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
+    async def get_access_token(self) -> Optional[str]:
+        if self.access_token and time.time() < self.token_expiry - 60:
+            return self.access_token
         
-        self.gigachat_token = None
-        self.token_expires_at = 0
-        # ВАЖНО: GigaChat Free ограничен 1 потоком. Используем Lock для очереди.
-        self.gigachat_lock = asyncio.Lock() 
+        url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+        rquid = str(uuid.uuid4())
         
-        self.gigachat_available = bool(self.gigachat_id and self.gigachat_secret)
-        if self.gigachat_available:
-            logger.info("🟢 GigaChat: PRIMARY (Configured with Queue Lock)")
-        else:
-            logger.warning("Qq GigaChat: Not Configured")
+        # Ручная сборка заголовка Basic Auth (Самый надежный метод)
+        auth_str = f"{self.client_id}:{self.client_secret}"
+        b64_auth = base64.b64encode(auth_str.encode()).decode()
+        
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'RqUID': rquid,
+            'Authorization': f'Basic {b64_auth}'
+        }
+        
+        try:
+            # verify=False критически важен для Render
+            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                response = await client.post(url, headers=headers, data={'scope': self.scope})
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    self.access_token = data.get('access_token')
+                    # Конвертируем expires_at из мс в секунды
+                    expires_at = data.get('expires_at', 0)
+                    self.token_expiry = (expires_at / 1000) if expires_at > 2000000000000 else (time.time() + 1800)
+                    logger.info("✅ GigaChat: Token Refreshed")
+                    return self.access_token
+                else:
+                    logger.error(f"❌ GigaChat Auth Fail {response.status_code}: {response.text[:50]}")
+                    return None
+        except Exception as e:
+            logger.error(f"❌ GigaChat Connection Error: {e}")
+            return None
 
-        # --- GEMINI SETUP (BACKUP) ---
-        self.gemini_key = os.getenv('GEMINI_API_KEY', '').strip('"').strip("'")
+# ==================== ГЛАВНЫЙ ДВИЖОК ====================
+class NlpEngine:
+    def __init__(self):
+        # 1. GigaChat Setup
+        self.gc_id = os.getenv('GIGACHAT_CLIENT_ID', '')
+        self.gc_secret = os.getenv('GIGACHAT_CLIENT_SECRET', '')
+        
+        self.gigachat_available = bool(self.gc_id and self.gc_secret)
+        self.gigachat_auth = None
+        
+        if self.gigachat_available:
+            self.gigachat_auth = GigaChatAuth(self.gc_id, self.gc_secret)
+            # Семафор как в старой версии (1 поток)
+            self.gc_semaphore = asyncio.Semaphore(1)
+            logger.info("🟢 GigaChat: ENABLED (Legacy Mode)")
+        
+        # 2. Gemini Setup (PRO Model)
+        self.gemini_key = os.getenv('GEMINI_API_KEY', '').strip('"')
         self.gemini_available = False
-        self.gemini_model = None
         
         if self.gemini_key:
             try:
                 genai.configure(api_key=self.gemini_key)
-                self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+                # Меняем на gemini-pro (стабильная версия)
+                self.gemini_model = genai.GenerativeModel('gemini-pro')
                 self.gemini_available = True
-                logger.info("🟡 Gemini: BACKUP (Standby)")
+                logger.info("🟡 Gemini: Configured (Model: gemini-pro)")
             except Exception as e:
-                logger.error(f"❌ Gemini Setup Error: {e}")
-
-        self.enabled = self.gigachat_available or self.gemini_available
+                logger.error(f"❌ Gemini Setup Fail: {e}")
 
     async def analyze_news(self, news_item: Dict) -> Optional[Dict]:
-        if not self.enabled: 
-            return None
+        # Приоритет: GigaChat -> Gemini
         
-        # 1. GigaChat (Primary)
         if self.gigachat_available:
-            try:
-                # Используем lock, чтобы не спамить (1 запрос за раз)
-                async with self.gigachat_lock:
-                    self.stats['gigachat_requests'] += 1
-                    result = await self._analyze_with_gigachat(news_item)
-                    if result:
-                        return result
-                    # Если GigaChat вернул None (ошибка), идем к Gemini
-            except Exception as e:
-                logger.warning(f"⚠️ GigaChat Fail: {e}")
-                self.stats['errors'] += 1
-
-        # 2. Gemini (Backup)
+            async with self.gc_semaphore:
+                res = await self._analyze_gigachat(news_item)
+                if res: return res
+                
         if self.gemini_available:
-            try:
-                logger.info("🔄 Switching to Backup (Gemini)...")
-                self.stats['gemini_requests'] += 1
-                return await self._analyze_with_gemini(news_item)
-            except Exception as e:
-                logger.error(f"❌ Gemini Fail: {e}")
-                self.stats['errors'] += 1
-        
+            return await self._analyze_gemini(news_item)
+            
         return None
 
     def _create_prompt(self, news_item: Dict) -> str:
-        # Укорачиваем текст, чтобы влезть в лимиты токенов
-        text = f"{news_item.get('title', '')} {news_item.get('description', '')}"[:1000]
+        # Тот самый промпт из старой версии
+        title = news_item.get('title', '')
+        desc = news_item.get('description', '') or ''
         
-        return f"""
-        Ты финансовый аналитик MOEX. Проанализируй новость.
-        Текст: {text}
-        
-        Ответь ТОЛЬКО валидным JSON без Markdown. Формат:
-        {{
-            "tickers": ["SBER"], (только ликвидные акции РФ, если нет - пустой список)
-            "sentiment": "positive" | "negative" | "neutral",
-            "impact_score": (от 1 до 10),
-            "confidence": (от 0.0 до 1.0),
-            "is_tradable": true/false, (true только если новость важная и есть тикер)
-            "reason": "Краткое обоснование на русском (макс 10 слов)"
-        }}
-        """
+        return f"""Ты финансовый аналитик MOEX. Проанализируй новость.
+Новость: {title} {desc[:200]}
 
-    async def _analyze_with_gigachat(self, news_item: Dict) -> Optional[Dict]:
-        token = await self._get_gigachat_token()
-        if not token: 
-            logger.warning("⚠️ No GigaChat Token")
-            return None
+ВАЖНО: Найди тикеры MOEX (SBER, GAZP, LKOH, VTBR, YNDX, и т.д.).
+Если новость позитивная для компании - sentiment: positive.
+Если негативная - sentiment: negative.
+
+Верни JSON:
+{{
+    "tickers": ["SBER"],
+    "sentiment": "positive",
+    "impact_score": 7,
+    "confidence": 0.9,
+    "is_tradable": true,
+    "reason": "Коротко причина"
+}}
+
+Если тикеров нет - is_tradable: false. Верни только JSON."""
+
+    async def _analyze_gigachat(self, news_item: Dict) -> Optional[Dict]:
+        token = await self.gigachat_auth.get_access_token()
+        if not token: return None
         
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {
-            'Authorization': f'Bearer {token}', 
+            'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json',
             'X-Request-ID': str(uuid.uuid4())
         }
@@ -120,91 +144,57 @@ class NlpEngine:
         payload = {
             "model": "GigaChat",
             "messages": [{"role": "user", "content": self._create_prompt(news_item)}],
-            "temperature": 0.1, # Минимальная креативность для строгого JSON
-            "max_tokens": 300
+            "temperature": 0.1
         }
-        
-        # Отключаем проверку SSL для российских сертификатов (частая проблема на Render)
-        async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            
-            if resp.status_code == 200:
-                try:
-                    content = resp.json()['choices'][0]['message']['content']
-                    # Очистка от ```json ... ```
-                    content = re.sub(r'```json|```', '', content).strip()
-                    data = json.loads(content)
-                    
-                    if data.get('tickers') and data.get('is_tradable'):
-                        logger.info(f"🤖 GigaChat Signal: {data['tickers']} ({data['sentiment']})")
-                    return self._format_result(data, news_item, 'gigachat')
-                except json.JSONDecodeError:
-                    logger.warning(f"⚠️ GigaChat JSON Error. Raw: {content[:50]}...")
-            else:
-                logger.warning(f"⚠️ GigaChat HTTP {resp.status_code}: {resp.text[:100]}")
-        return None
-
-    async def _get_gigachat_token(self):
-        # Если токен есть и не протух (с запасом 60 сек)
-        if self.gigachat_token and time.time() < self.token_expires_at - 60:
-            return self.gigachat_token
-            
-        url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'RqUID': str(uuid.uuid4()),
-            'Authorization': f'Basic {self._get_auth_header()}'
-        }
-        data = {'scope': self.gigachat_scope}
         
         try:
-            async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
-                resp = await client.post(url, headers=headers, data=data)
+            async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+                resp = await client.post(url, headers=headers, json=payload)
                 if resp.status_code == 200:
-                    json_data = resp.json()
-                    self.gigachat_token = json_data['access_token']
-                    # expires_at приходит в миллисекундах
-                    self.token_expires_at = json_data['expires_at'] / 1000 
-                    logger.info("🔑 GigaChat Token Updated")
-                    return self.gigachat_token
+                    content = resp.json()['choices'][0]['message']['content']
+                    return self._parse_json(content, news_item, 'GigaChat')
                 else:
-                    logger.error(f"❌ Auth Fail: {resp.status_code} {resp.text}")
+                    logger.warning(f"⚠️ GigaChat Error {resp.status_code}")
         except Exception as e:
-            logger.error(f"❌ Token Request Error: {e}")
-            
+            logger.error(f"❌ GigaChat Request Error: {e}")
         return None
 
-    def _get_auth_header(self):
-        import base64
-        auth_str = f"{self.gigachat_id}:{self.gigachat_secret}"
-        return base64.b64encode(auth_str.encode()).decode()
-
-    async def _analyze_with_gemini(self, news_item: Dict) -> Optional[Dict]:
-        prompt = self._create_prompt(news_item)
+    async def _analyze_gemini(self, news_item: Dict) -> Optional[Dict]:
         try:
-            response = await self.gemini_model.generate_content_async(
-                prompt,
-                generation_config={"response_mime_type": "application/json"}
+            # Gemini Pro не поддерживает json_mode нативно в старых либах, просим текстом
+            resp = await self.gemini_model.generate_content_async(
+                self._create_prompt(news_item)
             )
-            if response.text:
-                data = json.loads(response.text)
-                return self._format_result(data, news_item, 'gemini')
+            return self._parse_json(resp.text, news_item, 'Gemini')
         except Exception as e:
-            logger.warning(f"⚠️ Gemini processing error: {e}")
+            logger.warning(f"⚠️ Gemini Error: {e}")
         return None
 
-    def _format_result(self, data: Dict, news_item: Dict, provider: str) -> Dict:
-        tickers = [t.upper() for t in data.get('tickers', []) if isinstance(t, str)]
-        return {
-            'ticker': tickers[0] if tickers else None,
-            'tickers': tickers,
-            'sentiment': data.get('sentiment', 'neutral'),
-            'impact_score': data.get('impact_score', 5),
-            'confidence': data.get('confidence', 0.5),
-            'reason': data.get('reason', 'AI Analysis'),
-            'is_tradable': data.get('is_tradable', False),
-            'ai_provider': provider,
-            'news_id': news_item.get('id'),
-            'event_type': 'news_analysis'
-        }
+    def _parse_json(self, raw_text: str, news_item: Dict, provider: str) -> Optional[Dict]:
+        try:
+            # Очистка от маркдауна
+            clean_text = re.sub(r'```json|```', '', raw_text).strip()
+            # Поиск JSON скобок
+            start = clean_text.find('{')
+            end = clean_text.rfind('}') + 1
+            if start != -1 and end != 0:
+                clean_text = clean_text[start:end]
+                
+            data = json.loads(clean_text)
+            
+            tickers = [t.upper() for t in data.get('tickers', []) if isinstance(t, str)]
+            
+            return {
+                'ticker': tickers[0] if tickers else None,
+                'tickers': tickers,
+                'sentiment': data.get('sentiment', 'neutral'),
+                'impact_score': data.get('impact_score', 5),
+                'confidence': data.get('confidence', 0.5),
+                'reason': data.get('reason', 'AI Analysis'),
+                'is_tradable': data.get('is_tradable', False) and bool(tickers),
+                'ai_provider': provider,
+                'title': news_item.get('title', '')
+            }
+        except Exception:
+            # logger.debug(f"JSON Parse Error ({provider}): {raw_text[:50]}...")
+            return None
