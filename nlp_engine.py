@@ -1,4 +1,4 @@
-# nlp_engine.py - UNBIASED PROMPT + ROBUST AUTH
+# nlp_engine.py - STRICT RELEVANCE CHECK
 import logging
 import json
 import os
@@ -9,6 +9,7 @@ import uuid
 import base64
 import re
 from typing import Dict, Optional
+import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,6 @@ class GigaChatAuth:
         self.token_expiry = 0
         
     def _get_auth_header(self):
-        # Умная проверка: если это уже готовый ключ или raw id:secret
         if len(self.client_secret) > 50 and '=' in self.client_secret:
             return f'Basic {self.client_secret}'
         auth = f"{self.client_id}:{self.client_secret}"
@@ -29,14 +29,8 @@ class GigaChatAuth:
     async def get_token(self):
         if self.access_token and time.time() < self.token_expiry - 60:
             return self.access_token
-            
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'RqUID': str(uuid.uuid4()),
-            'Authorization': self._get_auth_header()
-        }
-        
+        headers = {'Content-Type': 'application/x-www-form-urlencoded', 'RqUID': str(uuid.uuid4()), 'Authorization': self._get_auth_header()}
         try:
             async with httpx.AsyncClient(verify=False, timeout=20.0) as client:
                 resp = await client.post(url, headers=headers, data={'scope': 'GIGACHAT_API_PERS'})
@@ -44,9 +38,8 @@ class GigaChatAuth:
                     data = resp.json()
                     self.access_token = data['access_token']
                     self.token_expiry = (data['expires_at'] / 1000)
-                    logger.info("✅ GigaChat: Token OK")
                     return self.access_token
-        except Exception: pass
+        except: pass
         return None
 
 class NlpEngine:
@@ -55,54 +48,42 @@ class NlpEngine:
         self.gc_secret = os.getenv('GIGACHAT_CLIENT_SECRET', '')
         self.auth = None
         self.sem = asyncio.Semaphore(1)
-        
-        if self.gc_id and self.gc_secret:
-            self.auth = GigaChatAuth(self.gc_id, self.gc_secret)
-            logger.info("🟢 GigaChat: Active")
-        else:
-            logger.warning("⚠️ GigaChat: Not Configured")
+        if self.gc_id: self.auth = GigaChatAuth(self.gc_id, self.gc_secret)
 
     async def analyze_news(self, news_item: Dict) -> Optional[Dict]:
         if not self.auth: return None
-        async with self.sem:
-            return await self._call_gigachat(news_item)
+        async with self.sem: return await self._call_gigachat(news_item)
 
     def _create_prompt(self, news_item: Dict) -> str:
-        # ВАЖНО: В примере JSON я заменил SBER на LKOH, чтобы убрать предвзятость
-        return f"""Ты аналитик MOEX.
+        # Убрал примеры, добавил строгое ограничение по теме
+        return f"""Ты строгий финансовый аналитик MOEX (Мосбиржа).
 Новость: {news_item.get('title', '')} {news_item.get('description', '')[:300]}
 
-1. Выдели тикеры (SBER, LKOH, GAZP, ROSN, YNDX, OZON, MGNT, AFKS и др).
-2. Оцени влияние (Positive/Negative).
+Задача:
+1. Если новость НЕ про российские публичные компании (Сбер, Газпром, Яндекс, Лукойл и т.д.) -> ВЕРНИ "tickers": [].
+2. Если новость про иностранные рынки, сушилки, химикаты, погоду -> ВЕРНИ "tickers": [].
+3. Если новость важная для РФ рынка -> укажи тикер и sentiment.
 
 Ответь ТОЛЬКО JSON:
 {{
-    "tickers": ["LKOH"], 
+    "tickers": ["SBER"], 
     "sentiment": "positive",
     "impact_score": 8,
     "confidence": 0.9,
     "is_tradable": true,
-    "reason": "Рост прибыли"
-}}
-Если тикеров нет - is_tradable: false."""
+    "reason": "Краткая причина"
+}}"""
 
     async def _call_gigachat(self, news_item):
         token = await self.auth.get_token()
         if not token: return None
-        
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Authorization': f'Bearer {token}', 'X-Request-ID': str(uuid.uuid4())}
-        payload = {
-            "model": "GigaChat",
-            "messages": [{"role": "user", "content": self._create_prompt(news_item)}],
-            "temperature": 0.1
-        }
-        
+        payload = {"model": "GigaChat", "messages": [{"role": "user", "content": self._create_prompt(news_item)}], "temperature": 0.1}
         try:
             async with httpx.AsyncClient(verify=False, timeout=20.0) as client:
                 resp = await client.post(url, headers=headers, json=payload)
-                if resp.status_code == 200:
-                    return self._parse(resp.json()['choices'][0]['message']['content'], news_item)
+                if resp.status_code == 200: return self._parse(resp.json()['choices'][0]['message']['content'], news_item)
         except: pass
         return None
 
