@@ -1,4 +1,4 @@
-# signal_pipeline.py - DEBUG VERSION
+# signal_pipeline.py - VERBOSE DEBUG MODE
 import logging
 import asyncio
 import time
@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 class SignalPipeline:
-    """Конвейер обработки сигналов"""
+    """Конвейер с подробным логированием отказов"""
     
     def __init__(self, nlp_engine, finam_verifier, risk_manager, 
                  enhanced_analyzer, news_prefilter, technical_strategy=None):
@@ -22,18 +22,16 @@ class SignalPipeline:
         
         self.processed_news_cache = {} 
         self.stats = {
-            'total_news': 0,
-            'technical_signals': 0,
             'signals_generated': 0,
             'pipeline_start': datetime.now().isoformat()
         }
         
-        logger.info("🚀 SignalPipeline Ready (Real Data Mode)")
+        logger.info("🚀 SignalPipeline: VERBOSE DEBUG MODE (Видим всё)")
     
     async def process_news_batch(self, news_items):
         fresh_news = []
         
-        # Фильтрация дублей (Кэш на 4 часа)
+        # Фильтрация дублей
         for news in news_items:
             title = news.get('title', '')
             news_id = news.get('id') or hashlib.md5(title.encode()).hexdigest()
@@ -45,105 +43,88 @@ class SignalPipeline:
             fresh_news.append(news)
             self.processed_news_cache[news_id] = time.time()
             
-            # Ограничиваем очередь на обработку, чтобы не ждать вечность с GigaChat
+            # Лимит 5 новостей за раз для GigaChat (чтобы не ждать вечность)
             if len(fresh_news) >= 5: 
                 break 
         
-        # Чистка кэша
-        current_time = time.time()
-        self.processed_news_cache = {k:v for k,v in self.processed_news_cache.items() 
-                                   if current_time - v < 14400}
-        
-        # 1. Сбор технических сигналов
+        # 1. Технический анализ
         verified_signals = []
         if self.technical_strategy:
             try:
-                technical_signals = await self.technical_strategy.scan_for_signals()
-                if technical_signals:
-                    logger.info(f"📈 Технический анализ: {len(technical_signals)} сигналов")
-                    verified_signals.extend(self._verify_batch(technical_signals))
+                tech_signals = await self.technical_strategy.scan_for_signals()
+                if tech_signals:
+                    logger.info(f"📈 TECH SIGNAL: Найдено {len(tech_signals)} шт.")
+                    # Сразу добавляем, тех. анализ надежен
+                    verified_signals.extend(tech_signals)
             except Exception as e:
-                logger.error(f"❌ Ошибка Tech Strategy: {e}")
-        
+                logger.error(f"❌ Tech Error: {e}")
+
         # 2. Анализ новостей
         if fresh_news:
-            logger.info(f"🧠 AI Анализ {len(fresh_news)} новостей (GigaChat)...")
+            logger.info(f"📨 Отправка {len(fresh_news)} новостей в AI...")
             
             for news_item in fresh_news:
-                try:
-                    # Поштучная обработка (важно для GigaChat)
-                    signal = await self._process_single_news(news_item)
-                    if signal:
-                        verified = await self._verify_single(signal)
-                        if verified:
-                            verified_signals.append(verified)
+                # Пауза между запросами к GigaChat (защита от бана)
+                await asyncio.sleep(1.1) 
+                
+                signal = await self._process_single_news(news_item)
+                
+                if signal:
+                    # Верификация цены
+                    ticker = signal['ticker']
+                    prices = await self.finam_verifier.get_current_prices([ticker])
+                    
+                    if prices.get(ticker):
+                        # Риск-менеджмент
+                        risk_signal = self.risk_manager.prepare_signal(
+                            analysis=signal,
+                            verification={'valid': True, 'primary_ticker': ticker},
+                            current_prices=prices
+                        )
+                        if risk_signal:
+                            verified_signals.append(risk_signal)
+                        else:
+                            logger.info(f"🛡️ RISK REJECT [{ticker}]: Шорт запрещен или нет денег")
                     else:
-                        # ЛОГИРУЕМ ПОЧЕМУ НЕТ СИГНАЛА
-                        pass 
-                except Exception as e:
-                    logger.error(f"❌ Ошибка в цикле новостей: {e}")
+                        logger.info(f"❌ PRICE ERROR [{ticker}]: Нет данных в Finam")
 
-        if verified_signals:
-            logger.info(f"⚡ ГОТОВЫЕ ОРДЕРА: {len(verified_signals)}")
-        
-        self.stats['signals_generated'] += len(verified_signals)
         return verified_signals
 
     async def _process_single_news(self, news_item):
-        # 1. Префильтр (Regex)
+        title = news_item.get('title', '')[:40]
+        
+        # 1. Префильтр
         if not self.news_prefilter.is_tradable(news_item):
-            # logger.debug(f"Skipped (PreFilter): {news_item['title'][:30]}")
+            logger.info(f"🗑️ FILTER: {title}... (Нет ключевых слов)")
             return None
             
         # 2. AI Анализ
+        # Передаем в NLP движок
         analysis = await self.nlp_engine.analyze_news(news_item)
         
         if not analysis:
-            logger.debug(f"Skipped (AI Null): {news_item['title'][:30]}")
+            logger.info(f"🤖 AI NULL: {title}... (Сбой API)")
             return None
             
         if not analysis.get('is_tradable'):
-            logger.debug(f"Skipped (AI Not Tradable): {news_item['title'][:30]}")
+            logger.info(f"📉 AI SKIP: {title}... (Не для торговли. Ticker: {analysis.get('tickers')})")
             return None
             
         if not analysis.get('ticker'):
-            logger.debug(f"Skipped (No Ticker): {news_item['title'][:30]}")
+            logger.info(f"❓ AI NO TICKER: {title}...")
             return None
-            
-        # Успешный сигнал
+        
+        # Успех
+        logger.info(f"✨ AI SIGNAL: {analysis['ticker']} {analysis['sentiment'].upper()} (Conf: {analysis['confidence']})")
         return {
             'ticker': analysis['ticker'],
             'action': 'BUY' if analysis['sentiment'] == 'positive' else 'SELL',
             'confidence': analysis['confidence'],
             'impact_score': analysis['impact_score'],
-            'reason': analysis['reason'],
+            'reason': analysis['reason'], # Это описание пойдет в историю сделок
             'ai_provider': analysis['ai_provider'],
             'sentiment': analysis['sentiment']
         }
-
-    # Вспомогательные методы для верификации (чтобы не дублировать код)
-    def _verify_batch(self, signals):
-        # Здесь мы можем получить цены пакетно, но пока для простоты оставим пустым
-        # т.к. тех анализ уже идет с ценой, а RiskManager проверит снова
-        # В реальной реализации здесь нужен FinamVerifier
-        return signals # Пока пропускаем как есть, RiskManager отфильтрует
-
-    async def _verify_single(self, signal):
-        # Получаем цену
-        ticker = signal['ticker']
-        prices = await self.finam_verifier.get_current_prices([ticker])
-        
-        if not prices.get(ticker):
-            logger.warning(f"❌ Цена не найдена: {ticker}")
-            return None
-            
-        # Проверяем через RiskManager
-        risk_signal = self.risk_manager.prepare_signal(
-            analysis=signal,
-            verification={'valid': True, 'primary_ticker': ticker},
-            current_prices=prices
-        )
-        return risk_signal
 
     def get_stats(self):
         return self.stats
