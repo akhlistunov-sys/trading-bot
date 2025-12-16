@@ -1,4 +1,4 @@
-# virtual_portfolio.py - TRAILING STOP IMPLEMENTATION
+# virtual_portfolio.py - FIX KEY ERROR (avg -> avg_price)
 import datetime
 import logging
 import json
@@ -30,12 +30,14 @@ class VirtualPortfolioPro:
                 self.cash -= cost
                 if t in self.positions:
                     p = self.positions[t]
-                    total = (p['size'] * p['avg']) + cost
+                    # Используем avg_price для совместимости с UI
+                    current_avg = p.get('avg_price', p.get('avg', price))
+                    total = (p['size'] * current_avg) + cost
                     p['size'] += qty
-                    p['avg'] = total / p['size']
+                    p['avg_price'] = total / p['size']
                 else:
-                    # high_water_mark - это максимум цены, который мы видели (для трейлинга)
-                    self.positions[t] = {'size': qty, 'avg': price, 'high_water_mark': price}
+                    # high_water_mark - максимум цены для трейлинга
+                    self.positions[t] = {'size': qty, 'avg_price': price, 'high_water_mark': price}
                 
                 self._log_trade(ts, 'BUY', t, price, signal.get('reason', 'Signal'), 0)
                 return {'status': 'EXECUTED', 'profit': 0}
@@ -44,7 +46,10 @@ class VirtualPortfolioPro:
             if t in self.positions:
                 p = self.positions[t]
                 rev = (price * qty) - comm
-                prof = rev - (p['avg'] * qty)
+                
+                current_avg = p.get('avg_price', p.get('avg', price))
+                prof = rev - (current_avg * qty)
+                
                 self.cash += rev
                 self.total_profit += prof
                 
@@ -62,25 +67,26 @@ class VirtualPortfolioPro:
             if t not in prices: continue
             curr = prices[t]
             
-            # --- TRAILING STOP LOGIC ---
-            # 1. Обновляем максимум цены
-            p['high_water_mark'] = max(p.get('high_water_mark', p['avg']), curr)
+            # Получаем среднюю цену (с защитой от старых ключей)
+            avg = p.get('avg_price', p.get('avg', curr))
             
-            # Процент прибыли от входа
-            profit_pct = (curr - p['avg']) / p['avg']
+            # --- TRAILING STOP LOGIC ---
+            p['high_water_mark'] = max(p.get('high_water_mark', avg), curr)
+            
+            profit_pct = (curr - avg) / avg
             
             # Если прибыль > 1%, включаем трейлинг
             if profit_pct > 0.01:
-                # Стоп на 1.5% ниже МАКСИМУМА
+                # Стоп на 1.5% ниже максимума
                 trailing_stop = p['high_water_mark'] * 0.985
                 # Но не ниже безубытка (+0.1%)
-                breakeven = p['avg'] * 1.001
+                breakeven = avg * 1.001
                 effective_stop = max(trailing_stop, breakeven)
                 
                 if curr < effective_stop:
                     exits.append({'action': 'SELL', 'ticker': t, 'position_size': p['size'], 'reason': 'Trailing Stop'})
             
-            # Обычный Хард Стоп (-2%), если трейлинг еще не включился
+            # Хард Стоп (-2%)
             elif profit_pct < -0.02:
                 exits.append({'action': 'SELL', 'ticker': t, 'position_size': p['size'], 'reason': 'Stop Loss'})
                 
@@ -114,5 +120,10 @@ class VirtualPortfolioPro:
         except: pass
 
     def get_stats(self):
-        val = self.cash + sum([p['size'] * p.get('high_water_mark', p['avg']) for p in self.positions.values()])
-        return {'current_value': val, 'cash': self.cash, 'total_profit': self.total_profit, 'trade_history': self.trade_history}
+        # Расчет equity с защитой ключей
+        equity = self.cash
+        for p in self.positions.values():
+            price = p.get('high_water_mark', p.get('avg_price', p.get('avg', 0)))
+            equity += p['size'] * price
+            
+        return {'current_value': equity, 'cash': self.cash, 'total_profit': self.total_profit, 'trade_history': self.trade_history}
