@@ -1,6 +1,7 @@
-# technical_strategy.py - ТЕХ. АНАЛИЗ НА ДАННЫХ FINAM
+# technical_strategy.py - RSI ON DEMAND
 import logging
 import numpy as np
+import random
 from typing import Dict, List, Optional
 from datetime import datetime
 import asyncio
@@ -8,36 +9,39 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 class TechnicalStrategy:
-    """Momentum & Trend Following"""
-    
     def __init__(self, finam_client, lookback_period: int = 50):
         self.client = finam_client
         self.lookback_period = lookback_period
         self.price_cache = {}
-        
-        # Основные голубые фишки РФ
+        # Расширенный список для сбора истории
         self.tracked_tickers = [
-            'SBER', 'GAZP', 'LKOH', 'ROSN', 'GMKN', 'YNDX', 'OZON', 
-            'MGNT', 'VTBR', 'TCSG', 'ALRS', 'MOEX'
+            'SBER', 'GAZP', 'LKOH', 'ROSN', 'GMKN', 'YDEX', 'OZON', 
+            'MGNT', 'VTBR', 'TCSG', 'ALRS', 'MOEX', 'AFKS', 'NVTK'
         ]
-        logger.info(f"📊 TechStrategy: отслеживаем {len(self.tracked_tickers)} тикеров через Finam")
+        self._seed_data()
+        logger.info(f"📊 TechStrategy: RSI Engine Ready")
 
-    async def update_prices(self, ticker: str) -> None:
+    def _seed_data(self):
+        # Фейковая история для старта, пока не накопятся реальные тики
+        for t in self.tracked_tickers:
+            self.price_cache[t] = [100.0] * 20 
+
+    async def update_prices(self, ticker: str):
+        # Этот метод вызывается регулярно, чтобы копить историю
         try:
-            # Используем Finam Client вместо Tinkoff
             price = await self.client.get_current_price(ticker)
             if price:
-                if ticker not in self.price_cache:
-                    self.price_cache[ticker] = []
+                if ticker not in self.price_cache: self.price_cache[ticker] = []
                 self.price_cache[ticker].append(price)
-                # Храним историю
-                if len(self.price_cache[ticker]) > self.lookback_period * 2:
+                if len(self.price_cache[ticker]) > self.lookback_period:
                     self.price_cache[ticker] = self.price_cache[ticker][-self.lookback_period:]
-        except Exception as e:
-            pass
+        except: pass
 
-    def calculate_rsi(self, prices: List[float], period: int = 14) -> Optional[float]:
+    def get_rsi(self, ticker: str, period: int = 14) -> Optional[float]:
+        """Возвращает текущий RSI для тикера"""
+        prices = self.price_cache.get(ticker, [])
         if len(prices) < period + 1: return None
+        
         prices_np = np.array(prices)
         deltas = np.diff(prices_np)
         seed = deltas[:period]
@@ -48,32 +52,15 @@ class TechnicalStrategy:
         return 100.0 - (100.0 / (1.0 + rs))
 
     async def scan_for_signals(self) -> List[Dict]:
+        # Обновляем цены для всех
+        await asyncio.gather(*[self.update_prices(t) for t in self.tracked_tickers])
         signals = []
-        # Параллельное обновление цен
-        update_tasks = [self.update_prices(ticker) for ticker in self.tracked_tickers]
-        await asyncio.gather(*update_tasks, return_exceptions=True)
-        
-        for ticker in self.tracked_tickers:
-            if ticker not in self.price_cache or len(self.price_cache[ticker]) < 15:
-                continue
-            
-            prices = self.price_cache[ticker]
-            rsi = self.calculate_rsi(prices)
-            current_price = prices[-1]
-            
-            if rsi is None: continue
-            
-            # Логика: RSI перепродан (<30) -> BUY
-            if rsi < 30: 
-                 signal = {
-                    'action': 'BUY',
-                    'ticker': ticker,
-                    'reason': f'RSI Oversold ({rsi:.1f})',
-                    'confidence': 0.8,
-                    'impact_score': 7,
-                    'ai_provider': 'technical_finam',
-                    'timestamp': datetime.now().isoformat()
-                }
-                 signals.append(signal)
-
+        for t in self.tracked_tickers:
+            rsi = self.get_rsi(t)
+            if rsi and rsi < 30:
+                signals.append({
+                    'action': 'BUY', 'ticker': t, 
+                    'reason': f'RSI Oversold ({rsi:.0f})', 
+                    'confidence': 0.8, 'ai_provider': 'Technical'
+                })
         return signals
