@@ -1,136 +1,118 @@
-# virtual_portfolio.py - СОХРАНЯЕТ ПРИЧИНУ СДЕЛКИ
+# virtual_portfolio.py - TRAILING STOP IMPLEMENTATION
 import datetime
 import logging
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
 class VirtualPortfolioPro:
     def __init__(self, initial_capital: float = 100000):
         self.state_file = 'portfolio_state.json'
-        self.history_file = 'trade_history.json'
-        self.initial_capital = initial_capital
+        self.cash = initial_capital
+        self.positions = {} 
+        self.trade_history = []
+        self.total_profit = 0
+        self.load_state()
         
-        if not self.load_state():
-            self.cash = initial_capital
-            self.positions = {} 
-            self.trade_history = []
-            self.total_trades = 0
-            self.winning_trades = 0
-            self.total_profit = 0
-            
-    def execute_trade(self, signal: Dict, current_price: float) -> Dict:
-        ticker = signal['ticker']
-        action = signal['action']
-        reason = signal.get('reason', 'Signal') # Причина сделки
-        size = int(signal.get('position_size', 1))
+    def execute_trade(self, signal: Dict, price: float) -> Dict:
+        t = signal['ticker']
+        qty = int(signal.get('position_size', 1))
+        if qty <= 0: return {'status': 'ERR'}
         
-        if size <= 0: return {'status': 'ERROR', 'profit': 0}
+        comm = (price * qty) * 0.0005
+        ts = datetime.datetime.now().strftime("%H:%M")
         
-        commission = (current_price * size) * 0.0005
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        trade_record = {
-            'timestamp': timestamp,
-            'ticker': ticker,
-            'action': action,
-            'size': size,
-            'price': current_price,
-            'reason': reason, # <--- ВАЖНО: Новость или тех. индикатор
-            'profit': 0.0
-        }
-
-        if action == 'BUY':
-            cost = (current_price * size) + commission
+        if signal['action'] == 'BUY':
+            cost = (price * qty) + comm
             if self.cash >= cost:
                 self.cash -= cost
-                if ticker in self.positions:
-                    # Усреднение
-                    p = self.positions[ticker]
-                    total_cost = (p['size'] * p['avg_price']) + cost
-                    p['size'] += size
-                    p['avg_price'] = total_cost / p['size']
+                if t in self.positions:
+                    p = self.positions[t]
+                    total = (p['size'] * p['avg']) + cost
+                    p['size'] += qty
+                    p['avg'] = total / p['size']
                 else:
-                    self.positions[ticker] = {'size': size, 'avg_price': current_price}
+                    # high_water_mark - это максимум цены, который мы видели (для трейлинга)
+                    self.positions[t] = {'size': qty, 'avg': price, 'high_water_mark': price}
                 
-                self.total_trades += 1
-                self.trade_history.insert(0, trade_record) # Добавляем в начало списка
-                self.save_state()
+                self._log_trade(ts, 'BUY', t, price, signal.get('reason', 'Signal'), 0)
                 return {'status': 'EXECUTED', 'profit': 0}
                 
-        elif action == 'SELL':
-            if ticker in self.positions and self.positions[ticker]['size'] >= size:
-                p = self.positions[ticker]
-                revenue = (current_price * size) - commission
-                profit = revenue - (p['avg_price'] * size)
+        elif signal['action'] == 'SELL':
+            if t in self.positions:
+                p = self.positions[t]
+                rev = (price * qty) - comm
+                prof = rev - (p['avg'] * qty)
+                self.cash += rev
+                self.total_profit += prof
                 
-                self.cash += revenue
-                self.total_profit += profit
-                self.total_trades += 1
-                if profit > 0: self.winning_trades += 1
+                p['size'] -= qty
+                if p['size'] == 0: del self.positions[t]
                 
-                p['size'] -= size
-                if p['size'] == 0: del self.positions[ticker]
+                self._log_trade(ts, 'SELL', t, price, signal.get('reason', 'Exit'), prof)
+                return {'status': 'EXECUTED', 'profit': prof}
                 
-                trade_record['profit'] = profit
-                self.trade_history.insert(0, trade_record)
-                self.save_state()
-                return {'status': 'EXECUTED', 'profit': profit}
+        return {'status': 'FAIL'}
 
-        return {'status': 'FAILED', 'profit': 0}
+    def check_exit_conditions(self, prices):
+        exits = []
+        for t, p in self.positions.items():
+            if t not in prices: continue
+            curr = prices[t]
+            
+            # --- TRAILING STOP LOGIC ---
+            # 1. Обновляем максимум цены
+            p['high_water_mark'] = max(p.get('high_water_mark', p['avg']), curr)
+            
+            # Процент прибыли от входа
+            profit_pct = (curr - p['avg']) / p['avg']
+            
+            # Если прибыль > 1%, включаем трейлинг
+            if profit_pct > 0.01:
+                # Стоп на 1.5% ниже МАКСИМУМА
+                trailing_stop = p['high_water_mark'] * 0.985
+                # Но не ниже безубытка (+0.1%)
+                breakeven = p['avg'] * 1.001
+                effective_stop = max(trailing_stop, breakeven)
+                
+                if curr < effective_stop:
+                    exits.append({'action': 'SELL', 'ticker': t, 'position_size': p['size'], 'reason': 'Trailing Stop'})
+            
+            # Обычный Хард Стоп (-2%), если трейлинг еще не включился
+            elif profit_pct < -0.02:
+                exits.append({'action': 'SELL', 'ticker': t, 'position_size': p['size'], 'reason': 'Stop Loss'})
+                
+        return exits
+
+    def _log_trade(self, ts, act, tick, pr, reas, prof):
+        self.trade_history.insert(0, {
+            'timestamp': ts, 'action': act, 'ticker': tick, 
+            'price': pr, 'reason': reas, 'profit': prof
+        })
+        self.save_state()
 
     def save_state(self):
         try:
             state = {
-                'cash': self.cash,
-                'positions': self.positions,
-                'total_profit': self.total_profit,
-                'total_trades': self.total_trades,
-                'trade_history': self.trade_history[:50] # Храним последние 50
+                'cash': self.cash, 'positions': self.positions, 
+                'total_profit': self.total_profit, 'history': self.trade_history[:50]
             }
-            with open(self.state_file, 'w') as f: json.dump(state, f, indent=4)
+            with open(self.state_file, 'w') as f: json.dump(state, f)
         except: pass
 
-    def load_state(self) -> bool:
-        if not os.path.exists(self.state_file): return False
+    def load_state(self):
+        if not os.path.exists(self.state_file): return
         try:
             with open(self.state_file, 'r') as f:
-                state = json.load(f)
-                self.cash = state.get('cash', 100000)
-                self.positions = state.get('positions', {})
-                self.total_profit = state.get('total_profit', 0)
-                self.total_trades = state.get('total_trades', 0)
-                self.trade_history = state.get('trade_history', [])
-            return True
-        except: return False
+                d = json.load(f)
+                self.cash = d.get('cash', 100000)
+                self.positions = d.get('positions', {})
+                self.total_profit = d.get('total_profit', 0)
+                self.trade_history = d.get('history', [])
+        except: pass
 
-    def get_stats(self) -> Dict:
-        # Оценка стоимости портфеля
-        equity = self.cash
-        # Примечание: тут используются цены покупки. В идеале нужно передавать текущие цены.
-        for t, p in self.positions.items():
-            equity += p['size'] * p['avg_price']
-            
-        return {
-            'current_value': equity,
-            'cash': self.cash,
-            'total_profit': self.total_profit,
-            'total_trades': self.total_trades,
-            'trade_history': self.trade_history
-        }
-
-    def check_exit_conditions(self, current_prices):
-        exits = []
-        for ticker, pos in self.positions.items():
-            if ticker in current_prices:
-                price = current_prices[ticker]
-                # Stop Loss 2%, Take Profit 5%
-                pnl_pct = (price - pos['avg_price']) / pos['avg_price'] * 100
-                
-                if pnl_pct <= -2.0:
-                    exits.append({'action': 'SELL', 'ticker': ticker, 'position_size': pos['size'], 'reason': f'Stop Loss ({pnl_pct:.1f}%)'})
-                elif pnl_pct >= 5.0:
-                    exits.append({'action': 'SELL', 'ticker': ticker, 'position_size': pos['size'], 'reason': f'Take Profit ({pnl_pct:.1f}%)'})
-        return exits
+    def get_stats(self):
+        val = self.cash + sum([p['size'] * p.get('high_water_mark', p['avg']) for p in self.positions.values()])
+        return {'current_value': val, 'cash': self.cash, 'total_profit': self.total_profit, 'trade_history': self.trade_history}
